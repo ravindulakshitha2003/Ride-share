@@ -2,9 +2,11 @@
 import { useState } from 'react';
 // Import the React Native building blocks used on this screen
 import {
-  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView,
+  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
+// Import the image picker (gallery and camera)
+import * as ImagePicker from 'expo-image-picker';
 // Import your palette
 import { colors } from '../theme/colors';
 // Import the auth hook to get the register function
@@ -119,9 +121,49 @@ export default function RegisterScreen({ navigation }) {
   const [formError, setFormError] = useState('');
   // True while the request is running
   const [submitting, setSubmitting] = useState(false);
+  // Local path of the chosen profile photo (null means no photo chosen)
+  const [photoUri, setPhotoUri] = useState(null);
 
   // Returns a function that updates one field, for example onChangeText={set('email')}
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Open the camera or gallery and keep the chosen photo (it is uploaded when the form is submitted)
+  async function pickPhoto(fromCamera) {
+    // The camera needs the user's permission (the gallery picker does not)
+    if (fromCamera) {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        setFormError('Camera permission is needed to take a photo.');
+        return;
+      }
+    }
+    // Options: images only, square crop, slightly compressed to upload faster
+    const options = { mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.7 };
+    // Open the front camera for a selfie, or the gallery
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({ ...options, cameraType: ImagePicker.CameraType.front })
+      : await ImagePicker.launchImageLibraryAsync(options);
+    // Stop if the user cancelled
+    if (result.canceled) return;
+    // Clear any old message and remember the photo
+    setFormError('');
+    setPhotoUri(result.assets[0].uri);
+  }
+
+  // Let the user choose where the photo comes from (or remove it)
+  function choosePhotoSource() {
+    // The two main choices
+    const buttons = [
+      { text: 'Take a selfie', onPress: () => pickPhoto(true) },
+      { text: 'Choose from gallery', onPress: () => pickPhoto(false) },
+    ];
+    // Offer removal only when a photo is already chosen
+    if (photoUri) buttons.push({ text: 'Remove photo', style: 'destructive', onPress: () => setPhotoUri(null) });
+    // Always offer Cancel
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+    // Show the choice to the user
+    Alert.alert('Profile photo', 'Use a clear photo of your face.', buttons);
+  }
 
   // Check every visible field and return an object of error messages (empty means valid)
   function validate() {
@@ -208,6 +250,8 @@ export default function RegisterScreen({ navigation }) {
       gender: form.gender,
       dateOfBirth: form.dateOfBirth.trim(),
       wantsToDrive: form.wantsToDrive,
+      // The chosen photo's local path (undefined when none was chosen)
+      photoUri: photoUri || undefined,
     };
     // Add driver and vehicle details only for people who want to drive
     if (form.wantsToDrive) {
@@ -267,6 +311,25 @@ export default function RegisterScreen({ navigation }) {
 
         {/* Top message box for server errors or "fix the fields" */}
         {formError ? <Text style={styles.apiError}>{formError}</Text> : null}
+
+        {/* ---------- Profile photo picker ---------- */}
+        <View style={styles.photoWrap}>
+          {/* Tapping the circle opens the camera/gallery choice */}
+          <TouchableOpacity onPress={choosePhotoSource}>
+            <View style={styles.photoCircle}>
+              {/* Show the chosen photo, or a plus sign when none is chosen */}
+              {photoUri ? (
+                <Image source={{ uri: photoUri }} style={styles.photoImage} />
+              ) : (
+                <Text style={styles.photoPlus}>+</Text>
+              )}
+            </View>
+          </TouchableOpacity>
+          {/* Label under the circle */}
+          <Text style={styles.photoLabel}>{photoUri ? 'Change photo' : 'Add profile photo (optional)'}</Text>
+          {/* Small hint about what makes a good photo */}
+          <Text style={styles.photoHint}>Use a clear photo of your face.</Text>
+        </View>
 
         {/* ---------- Account section ---------- */}
         <Text style={styles.section}>Your details</Text>
@@ -368,6 +431,21 @@ const styles = StyleSheet.create({
   fieldError: { color: colors.error, fontSize: 13, marginTop: 4 },
   // Red message box at the top of the form
   apiError: { color: colors.error, backgroundColor: '#FEE2E2', padding: 12, borderRadius: 10, marginBottom: 8 },
+  // Centres the photo picker
+  photoWrap: { alignItems: 'center', marginVertical: 12 },
+  // Round placeholder/frame for the photo
+  photoCircle: {
+    width: 104, height: 104, borderRadius: 52, backgroundColor: colors.white, borderWidth: 2,
+    borderColor: colors.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  // The chosen photo fills the circle
+  photoImage: { width: 104, height: 104 },
+  // Plus sign shown before a photo is chosen
+  photoPlus: { fontSize: 40, color: colors.primary },
+  // Label under the circle
+  photoLabel: { color: colors.primary, fontWeight: 'bold', marginTop: 8 },
+  // Small grey hint
+  photoHint: { color: colors.text, opacity: 0.6, fontSize: 12, marginTop: 2 },
   // Row that holds the option buttons and wraps to a new line if needed
   chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
   // One option button

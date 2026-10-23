@@ -1,13 +1,15 @@
 // Import useEffect to run code when the screen opens, and useState to remember data
 import { useCallback, useEffect, useState } from 'react';
-// Import the React Native building blocks used on this screen
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+// Image shows the photo; the rest are the same building blocks as before
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+// Import the image picker (gallery and camera)
+import * as ImagePicker from 'expo-image-picker';
 // Import your palette
 import { colors } from '../theme/colors';
 // Import the auth hook to get the logout function
 import { useAuth } from '../context/authContext';
 // Import the GET /me call you wrote in auth.js
-import { getMe } from '../api/auth';
+import { getMe, uploadProfilePhoto } from '../api/auth';
 // Import the helper that turns API errors into readable messages
 import { getErrorMessage } from '../api/client';
 
@@ -33,6 +35,56 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   // Error message if loading fails
   const [error, setError] = useState('');
+
+    // True while the photo is uploading
+  const [uploading, setUploading] = useState(false);
+  // Error message for the photo (for example "no face detected")
+  const [photoError, setPhotoError] = useState('');
+
+  // Open the camera or gallery, then upload the chosen photo
+  async function pickPhoto(fromCamera) {
+    // Clear any old photo error
+    setPhotoError('');
+    // The camera needs the user's permission (the gallery picker does not)
+    if (fromCamera) {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        setPhotoError('Camera permission is needed to take a photo.');
+        return;
+      }
+    }
+    // Options: images only, square crop, slightly compressed to upload faster
+    const options = { mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.7 };
+    // Open the front camera for a selfie, or the gallery
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({ ...options, cameraType: ImagePicker.CameraType.front })
+      : await ImagePicker.launchImageLibraryAsync(options);
+    // Stop if the user cancelled
+    if (result.canceled) return;
+    // Show the upload spinner
+    setUploading(true);
+    try {
+      // Send the photo to the backend
+      const updated = await uploadProfilePhoto(result.assets[0].uri);
+      // Merge the new data (including photoUrl) into the profile on screen
+      setProfile((p) => ({ ...p, ...updated }));
+    } catch (err) {
+      // Show the backend's message, for example "Please upload a clear photo of your face."
+      setPhotoError(getErrorMessage(err));
+    } finally {
+      // Hide the spinner
+      setUploading(false);
+    }
+  }
+
+  // Let the user choose between camera and gallery
+  function choosePhotoSource() {
+    Alert.alert('Profile photo', 'Use a clear photo of your face.', [
+      { text: 'Take a selfie', onPress: () => pickPhoto(true) },
+      { text: 'Choose from gallery', onPress: () => pickPhoto(false) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
 
   // Load the profile from the backend (wrapped so the Retry button can call it again)
   const loadProfile = useCallback(async () => {
@@ -104,9 +156,23 @@ export default function ProfileScreen() {
     // Scrollable page with the lavender background
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
       {/* Circle showing the first letter of the user's name */}
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{initial}</Text>
-      </View>
+            {/* Tapping the avatar lets the user change the photo */}
+      <TouchableOpacity onPress={choosePhotoSource} disabled={uploading}>
+        <View style={styles.avatar}>
+          {/* Show the photo if there is one, otherwise the first letter of the name */}
+          {profile?.photoUrl ? (
+            <Image source={{ uri: profile.photoUrl }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.avatarText}>{initial}</Text>
+          )}
+          {/* Spinner over the avatar while uploading */}
+          {uploading ? <ActivityIndicator style={styles.avatarSpinner} color={colors.white} /> : null}
+        </View>
+        {/* Small hint under the avatar */}
+        <Text style={styles.changePhoto}>{profile?.photoUrl ? 'Change photo' : 'Add photo'}</Text>
+      </TouchableOpacity>
+      {/* Photo error message, shown only when there is one */}
+      {photoError ? <Text style={styles.photoError}>{photoError}</Text> : null}
       {/* The user's name as a heading */}
       <Text style={styles.name}>{profile?.fullName || profile?.name}</Text>
 
@@ -136,7 +202,7 @@ const styles = StyleSheet.create({
   // Round indigo avatar
   avatar: {
     width: 88, height: 88, borderRadius: 44, backgroundColor: colors.primary,
-    alignItems: 'center', justifyContent: 'center', marginTop: 24,
+    alignItems: 'center', justifyContent: 'center', marginTop: 24,overflow: 'hidden'
   },
   // Big white letter inside the avatar
   avatarText: { color: colors.white, fontSize: 36, fontWeight: 'bold' },
@@ -168,4 +234,13 @@ const styles = StyleSheet.create({
   buttonText: { color: colors.white, fontWeight: 'bold' },
   // Indigo text link
   link: { color: colors.primary, fontWeight: 'bold' },
+
+    // The photo fills the round avatar
+  avatarImage: { width: 88, height: 88 },
+  // Spinner centred on top of the avatar
+  avatarSpinner: { position: 'absolute' },
+  // "Add photo" / "Change photo" text
+  changePhoto: { color: colors.primary, fontWeight: 'bold', textAlign: 'center', marginTop: 8 },
+  // Red error text under the avatar
+  photoError: { color: colors.error, textAlign: 'center', marginTop: 8 },
 });
