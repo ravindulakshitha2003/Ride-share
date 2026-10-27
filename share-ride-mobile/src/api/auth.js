@@ -18,7 +18,7 @@ export async function registerUser({
   // FormData is the format used to send text fields and a file together
   const formData = new FormData();
   // Add the plain text fields from FR-01
-  formData.append('fullName', fullName);
+  formData.append('name', fullName);
   formData.append('mobile', mobile);
   formData.append('email', email);
   formData.append('password', password);

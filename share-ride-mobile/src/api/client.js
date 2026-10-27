@@ -6,8 +6,12 @@ import * as SecureStore from 'expo-secure-store';
 // The key name under which the access token is saved in secure storage (exported so other files reuse it)
 export const TOKEN_KEY = 'access_token';
 
-// The backend address; use your computer's local IP (not localhost) and the port your backend runs on
+// Identity Service address: your computer's IP and port 4001 (no /api part)
+const BASE_URL = 'http://192.168.1.8:4001';
+
+/*// The backend address; use your computer's local IP (not localhost) and the port your backend runs on
 const BASE_URL = 'http://192.168.1.10:5000/api';
+*/
 
 // Create one shared axios instance with default settings for every request
 const client = axios.create({

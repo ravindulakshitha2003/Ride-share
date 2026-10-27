@@ -63,8 +63,8 @@ export default function LoginScreen({ navigation }) {
     // Start the loading state
     setSubmitting(true);
     try {
-      // Call login from AuthContext; on success the navigation switches to the app screens by itself
-      await login(email.trim(), password);
+    // Lowercase the email so it matches how the service stores it
+      await login(email.trim().toLowerCase(), password);
     } catch (err) {
       // Show a readable message from the server or the network
       setApiError(getErrorMessage(err));
