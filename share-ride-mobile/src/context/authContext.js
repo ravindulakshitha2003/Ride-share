@@ -1,3 +1,7 @@
+//This file manages the authentication state of your Share-Ride app. 
+//It keeps track of who is logged in, restores previous login sessions, 
+//and handles login, registration, and logout.
+
 // Import React tools: createContext shares data between screens, the others manage state and side effects
 import { createContext, useContext, useEffect, useState } from 'react';
 // Import secure storage, where the access token is kept on the phone

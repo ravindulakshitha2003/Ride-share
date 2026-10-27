@@ -1,3 +1,7 @@
+//This file connects your Share-Ride frontend screens to the backend's authentication and profile APIs. 
+//It sends user information to the server and receives the results.
+
+
 // Import the shared axios client (it already adds the token header and the server address)
 import client from './client';
 
@@ -13,7 +17,7 @@ function photoFile(uri) {
 
 // Send the registration form (with the optional photo and driver/vehicle details) to the backend
 export async function registerUser({
-  fullName, mobile, email, password, gender, dateOfBirth, wantsToDrive, driver, vehicle, photoUri,
+  fullName, mobile, email, password, gender, dateOfBirth, wantsToDrive, driver, vehicle, photoUri, vehiclePhotoUri,
 }) {
   // FormData is the format used to send text fields and a file together
   const formData = new FormData();
@@ -32,6 +36,8 @@ export async function registerUser({
   if (vehicle) formData.append('vehicle', JSON.stringify(vehicle));
   // Attach the photo under the field name "photo" when the user chose one
   if (photoUri) formData.append('photo', photoFile(photoUri));
+  // Attach the vehicle photo under the field name "vehiclePhoto" (required for drivers)
+  if (vehiclePhotoUri) formData.append('vehiclePhoto', photoFile(vehiclePhotoUri));
   // POST everything to the register endpoint; uploads get a longer 30 second timeout
   const res = await client.post('/auth/register', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

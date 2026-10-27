@@ -1,3 +1,7 @@
+//This file creates the Login screen for your Share-Ride app. 
+//It collects the user's email and password, validates the inputs, 
+//sends the login request to the backend, and displays errors if login fails.
+
 // Import useState so the screen can remember what the user types
 import { useState } from 'react';
 // Import the React Native building blocks used on this screen

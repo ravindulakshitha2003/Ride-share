@@ -1,3 +1,6 @@
+//This file controls navigation between screens in your Share-Ride app. 
+//It decides which screens the user can see depending on whether they are logged in.
+
 // Import the spinner and layout tools for the loading screen
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 // Import the container that powers all navigation in the app

@@ -1,3 +1,7 @@
+//Instead of configuring the server address and authentication token separately in every API file, 
+//you configure them once here and reuse the client everywhere.
+
+
 // Import axios, the library we use to send HTTP requests to the backend
 import axios from 'axios';
 // Import everything from expo-secure-store, which saves data in the phone's encrypted storage

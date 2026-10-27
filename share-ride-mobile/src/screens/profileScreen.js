@@ -1,3 +1,7 @@
+//This screen connects your Share-Ride user's profile data to the app's interface. 
+//It retrieves the information from the backend and lets the user update their profile 
+//photo or log out.
+
 // Import useEffect to run code when the screen opens, and useState to remember data
 import { useCallback, useEffect, useState } from 'react';
 // Image shows the photo; the rest are the same building blocks as before

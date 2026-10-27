@@ -123,6 +123,8 @@ export default function RegisterScreen({ navigation }) {
   const [submitting, setSubmitting] = useState(false);
   // Local path of the chosen profile photo (null means no photo chosen)
   const [photoUri, setPhotoUri] = useState(null);
+  // Local path of the chosen vehicle photo (null means no photo chosen; it is required for drivers)
+  const [vehiclePhotoUri, setVehiclePhotoUri] = useState(null);
 
   // Returns a function that updates one field, for example onChangeText={set('email')}
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
@@ -148,6 +150,8 @@ export default function RegisterScreen({ navigation }) {
     // Clear any old message and remember the photo
     setFormError('');
     setPhotoUri(result.assets[0].uri);
+    // The photo is chosen now, so remove its error message
+    setErrors((e) => ({ ...e, photo: undefined }));
   }
 
   // Let the user choose where the photo comes from (or remove it)
@@ -163,6 +167,39 @@ export default function RegisterScreen({ navigation }) {
     buttons.push({ text: 'Cancel', style: 'cancel' });
     // Show the choice to the user
     Alert.alert('Profile photo', 'Use a clear photo of your face.', buttons);
+  }
+
+  // Open the camera or gallery and keep the chosen vehicle photo (uploaded when the form is submitted)
+  async function pickVehiclePhoto(fromCamera) {
+    // The camera needs the user's permission (the gallery picker does not)
+    if (fromCamera) {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        setFormError('Camera permission is needed to take a photo.');
+        return;
+      }
+    }
+    // Options: images only, wide 4:3 crop so the whole vehicle fits, slightly compressed
+    const options = { mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.7 };
+    // Open the (back) camera, or the gallery
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync(options)
+      : await ImagePicker.launchImageLibraryAsync(options);
+    // Stop if the user cancelled
+    if (result.canceled) return;
+    // Clear any old message, remember the photo, and clear its error
+    setFormError('');
+    setVehiclePhotoUri(result.assets[0].uri);
+    setErrors((e) => ({ ...e, vehiclePhoto: undefined }));
+  }
+
+  // Let the user choose where the vehicle photo comes from (or replace it)
+  function chooseVehiclePhotoSource() {
+    Alert.alert('Vehicle photo', 'Use a clear photo of your vehicle with the number plate visible.', [
+      { text: 'Take a photo', onPress: () => pickVehiclePhoto(true) },
+      { text: 'Choose from gallery', onPress: () => pickVehiclePhoto(false) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   }
 
   // Check every visible field and return an object of error messages (empty means valid)
@@ -189,6 +226,8 @@ export default function RegisterScreen({ navigation }) {
     cutoff.setFullYear(cutoff.getFullYear() - 18);
     if (!dob) e.dateOfBirth = 'Use the format YYYY-MM-DD.';
     else if (dob > cutoff) e.dateOfBirth = 'You must be 18 or over.';
+    // A profile photo is required for every new account
+    if (!photoUri) e.photo = 'Please add a profile photo.';
 
     // The driver and vehicle checks run only when "I want to drive" is on
     if (form.wantsToDrive) {
@@ -210,6 +249,8 @@ export default function RegisterScreen({ navigation }) {
       if (!v('make')) e.make = 'Brand is required (for example Toyota).';
       if (!v('model')) e.model = 'Model is required.';
       if (!v('colour')) e.colour = 'Colour is required.';
+      // A short description of the vehicle is required
+      if (!v('description')) e.description = 'Vehicle description is required.';
       // Year must be a number in a sensible range
       const year = Number(v('year'));
       if (!Number.isInteger(year) || year < 1990 || year > new Date().getFullYear() + 1) e.year = 'Enter a valid year.';
@@ -219,9 +260,11 @@ export default function RegisterScreen({ navigation }) {
       if (!Number.isInteger(seats) || seats < 1 || seats > 8) e.seats = 'Enter passenger seats (1 to 8).';
       if (!form.luggage) e.luggage = 'Please choose an option.';
       if (!v('crNumber')) e.crNumber = 'Registration (CR) number is required.';
-      // Revenue licence expiry is required; insurance expiry is optional
+      // Revenue licence expiry and insurance expiry are both required
       if (!parseDate(v('revenueLicenceExpiry'))) e.revenueLicenceExpiry = 'Use the format YYYY-MM-DD.';
-      if (v('insuranceExpiry') && !parseDate(v('insuranceExpiry'))) e.insuranceExpiry = 'Use the format YYYY-MM-DD.';
+      if (!parseDate(v('insuranceExpiry'))) e.insuranceExpiry = 'Use the format YYYY-MM-DD.';
+      // A vehicle photo is required for drivers
+      if (!vehiclePhotoUri) e.vehiclePhoto = 'Please add a photo of your vehicle.';
     }
     // Give the errors back to the caller
     return e;
@@ -255,6 +298,8 @@ export default function RegisterScreen({ navigation }) {
     };
     // Add driver and vehicle details only for people who want to drive
     if (form.wantsToDrive) {
+      // The chosen vehicle photo's local path (required, so it always exists here)
+      payload.vehiclePhotoUri = vehiclePhotoUri;
       payload.driver = {
         nicNumber: form.nicNumber.trim().toUpperCase(),
         licenceNumber: form.licenceNumber.trim(),
@@ -276,7 +321,7 @@ export default function RegisterScreen({ navigation }) {
         description: form.description.trim(),
         crNumber: form.crNumber.trim(),
         revenueLicenceExpiry: form.revenueLicenceExpiry.trim(),
-        insuranceExpiry: form.insuranceExpiry.trim() || undefined,
+        insuranceExpiry: form.insuranceExpiry.trim(),
       };
     }
 
@@ -316,7 +361,7 @@ export default function RegisterScreen({ navigation }) {
         <View style={styles.photoWrap}>
           {/* Tapping the circle opens the camera/gallery choice */}
           <TouchableOpacity onPress={choosePhotoSource}>
-            <View style={styles.photoCircle}>
+            <View style={[styles.photoCircle, errors.photo && styles.inputError]}>
               {/* Show the chosen photo, or a plus sign when none is chosen */}
               {photoUri ? (
                 <Image source={{ uri: photoUri }} style={styles.photoImage} />
@@ -326,9 +371,11 @@ export default function RegisterScreen({ navigation }) {
             </View>
           </TouchableOpacity>
           {/* Label under the circle */}
-          <Text style={styles.photoLabel}>{photoUri ? 'Change photo' : 'Add profile photo (optional)'}</Text>
+          <Text style={styles.photoLabel}>{photoUri ? 'Change photo' : 'Add profile photo'}</Text>
           {/* Small hint about what makes a good photo */}
-          <Text style={styles.photoHint}>Use a clear photo of your face.</Text>
+          <Text style={styles.photoHint}>Required. Use a clear photo of your face.</Text>
+          {/* Error message when the profile photo is missing */}
+          {errors.photo ? <Text style={styles.fieldError}>{errors.photo}</Text> : null}
         </View>
 
         {/* ---------- Account section ---------- */}
@@ -366,6 +413,23 @@ export default function RegisterScreen({ navigation }) {
 
             {/* ---------- Vehicle section ---------- */}
             <Text style={styles.section}>Vehicle details</Text>
+            {/* Vehicle photo picker (required) */}
+            <Text style={styles.label}>Vehicle photo</Text>
+            {/* Tapping the box opens the camera/gallery choice; red border when missing */}
+            <TouchableOpacity onPress={chooseVehiclePhotoSource}>
+              <View style={[styles.vehiclePhotoBox, errors.vehiclePhoto && styles.inputError]}>
+                {/* Show the chosen photo, or a prompt when none is chosen */}
+                {vehiclePhotoUri ? (
+                  <Image source={{ uri: vehiclePhotoUri }} style={styles.vehiclePhotoImage} />
+                ) : (
+                  <Text style={styles.vehiclePhotoPrompt}>+ Add vehicle photo</Text>
+                )}
+              </View>
+            </TouchableOpacity>
+            {/* Hint, or "Change photo" once a photo is chosen */}
+            <Text style={styles.photoHint}>{vehiclePhotoUri ? 'Tap to change the photo' : 'Required. Show the whole vehicle with the number plate visible.'}</Text>
+            {/* Error message when the photo is missing */}
+            {errors.vehiclePhoto ? <Text style={styles.fieldError}>{errors.vehiclePhoto}</Text> : null}
             <Chips label="Vehicle type" options={VEHICLE_TYPES} value={form.vehicleType} onChange={set('vehicleType')} error={errors.vehicleType} />
             <Field label="Brand" value={form.make} onChangeText={set('make')} error={errors.make} autoCapitalize="words" placeholder="Toyota" />
             <Field label="Model" value={form.model} onChangeText={set('model')} error={errors.model} autoCapitalize="words" placeholder="Prius" />
@@ -379,10 +443,10 @@ export default function RegisterScreen({ navigation }) {
               <Switch value={form.hasAC} onValueChange={set('hasAC')} trackColor={{ true: colors.primary }} />
             </View>
             <Chips label="Luggage space" options={LUGGAGE} value={form.luggage} onChange={set('luggage')} error={errors.luggage} />
-            <Field label="Vehicle description (optional)" value={form.description} onChangeText={set('description')} multiline placeholder="Clean, comfortable, non-smoking..." autoCapitalize="sentences" />
+            <Field label="Vehicle description" value={form.description} onChangeText={set('description')} error={errors.description} multiline placeholder="Clean, comfortable, non-smoking..." autoCapitalize="sentences" />
             <Field label="Registration (CR) number" value={form.crNumber} onChangeText={set('crNumber')} error={errors.crNumber} autoCapitalize="characters" placeholder="Certificate of registration number" />
             <Field label="Revenue licence expiry" value={form.revenueLicenceExpiry} onChangeText={set('revenueLicenceExpiry')} error={errors.revenueLicenceExpiry} keyboardType="numbers-and-punctuation" placeholder="YYYY-MM-DD" />
-            <Field label="Insurance expiry (optional)" value={form.insuranceExpiry} onChangeText={set('insuranceExpiry')} error={errors.insuranceExpiry} keyboardType="numbers-and-punctuation" placeholder="YYYY-MM-DD" />
+            <Field label="Insurance expiry" value={form.insuranceExpiry} onChangeText={set('insuranceExpiry')} error={errors.insuranceExpiry} keyboardType="numbers-and-punctuation" placeholder="YYYY-MM-DD" />
           </View>
         ) : null}
 
@@ -446,6 +510,15 @@ const styles = StyleSheet.create({
   photoLabel: { color: colors.primary, fontWeight: 'bold', marginTop: 8 },
   // Small grey hint
   photoHint: { color: colors.text, opacity: 0.6, fontSize: 12, marginTop: 2 },
+  // Wide 4:3 frame for the vehicle photo
+  vehiclePhotoBox: {
+    width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.white, borderWidth: 1,
+    borderColor: colors.border, borderRadius: 10, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  // The chosen vehicle photo fills the frame
+  vehiclePhotoImage: { width: '100%', height: '100%' },
+  // Prompt shown before a vehicle photo is chosen
+  vehiclePhotoPrompt: { color: colors.primary, fontWeight: 'bold', fontSize: 16 },
   // Row that holds the option buttons and wraps to a new line if needed
   chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
   // One option button
