@@ -1,7 +1,8 @@
+
 {
   "expo": {
-    "name": "share-ride-mobile",
-    "slug": "share-ride-mobile",
+    "name": "app_ui1",
+    "slug": "app_ui1",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,7 +10,9 @@
     "ios": {
       "supportsTablet": true
     },
+    
     "android": {
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
