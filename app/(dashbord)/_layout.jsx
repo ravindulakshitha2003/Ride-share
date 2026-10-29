@@ -9,50 +9,84 @@ export default function DashboardLayout() {
       screenOptions={{
         headerShown: false,
 
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.secondary,
+
         tabBarStyle: {
           position: 'absolute',
-          bottom: 12,
-          left: 0,
-          right: 0,
-          height: 68,
-          paddingTop: 8,
-          paddingBottom: 8,
-          marginHorizontal: 12,
+          bottom: 14,
+          left: 16,
+          right: 16,
+          height: 72,
+
+          paddingTop: 9,
+          paddingBottom: 9,
+          paddingHorizontal: 8,
 
           backgroundColor: colors.white,
-          borderRadius: 22,
+          borderRadius: 24,
           borderTopWidth: 0,
           borderWidth: 1,
           borderColor: colors.border,
 
-          elevation: 8,
+          elevation: 10,
           shadowColor: colors.secondary,
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.1,
-          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 5 },
+          shadowOpacity: 0.12,
+          shadowRadius: 12,
         },
-
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.secondary,
 
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '600',
-          marginTop: 2,
+          fontWeight: '700',
+          marginTop: 3,
         },
 
         tabBarItemStyle: {
-          paddingVertical: 1,
+          borderRadius: 16,
+          paddingVertical: 2,
         },
 
         tabBarHideOnKeyboard: true,
       }}
     >
+      
+
+      <Tabs.Screen
+        name="rideDetailsScreen"
+        options={{
+          title: 'My Rides',
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? 'car' : 'car-outline'}
+              size={25}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="resultsScreen"
+        options={{
+          title: 'Explore',
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={
+                focused
+                  ? 'compass'
+                  : 'compass-outline'
+              }
+              size={25}
+              color={color}
+            />
+          ),
+        }}
+      />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={
