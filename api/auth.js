@@ -5,6 +5,16 @@
 // Import the shared axios client (it already adds the token header and the server address)
 import client from './client';
 
+/////////////////////////////////
+// TEMPORARY: true lets you test the app without a backend (set to false when the Identity Service is connected)
+const DEV_MOCK = true;
+// The fake user returned while mock mode is on
+const MOCK_USER = { id: '1', name: 'Test User', email: 'test@example.com', mobile: '+94771234567', role: 'passenger' };
+// Waits a moment so loading spinners are visible
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/////////////////////////////////
+
 // Build the file object that FormData needs from a photo's local path
 function photoFile(uri) {
   // Take the file name from the end of the path
@@ -19,6 +29,10 @@ function photoFile(uri) {
 export async function registerUser({
   fullName, mobile, email, password, gender, dateOfBirth, wantsToDrive, driver, vehicle, photoUri, vehiclePhotoUri,
 }) {
+  ////////////////////////////////////////
+  // Mock mode: pretend the account was created
+  if (DEV_MOCK) { await wait(500); return { user: MOCK_USER }; }
+  ////////////////////////////////////////
   // FormData is the format used to send text fields and a file together
   const formData = new FormData();
   // Add the plain text fields from FR-01
@@ -49,6 +63,10 @@ export async function registerUser({
 
 // Send the login form to the backend and get back the access token
 export async function loginUser({ email, password }) {
+  ///////////////////////////////////////
+  // Mock mode: pretend the login worked and return a fake token
+  if (DEV_MOCK) { await wait(500); return { token: 'mock-token', user: { ...MOCK_USER, email } }; }
+  ///////////////////////////////////////
   // POST the email and password to the login endpoint
   const res = await client.post('/auth/login', { email, password });
   // Return the reply, expected to look like { token: '...', user: {...} }
@@ -57,6 +75,10 @@ export async function loginUser({ email, password }) {
 
 // Ask the backend for the profile of the currently logged-in user
 export async function getMe() {
+  ////////////////////////////////
+// Mock mode: return the fake user
+  if (DEV_MOCK) return MOCK_USER;
+  ///////////////////////////////
   // GET /me; the client attaches the saved token automatically, so no id is needed
   const res = await client.get('/me');
   // Some backends return { user: {...} } and others return the user directly, so handle both
@@ -65,6 +87,10 @@ export async function getMe() {
 
 // Upload a new profile photo for the logged-in user and return the updated user
 export async function uploadProfilePhoto(uri) {
+  /////////////////////////////////////
+  // Mock mode: pretend the upload worked and show the chosen photo
+  if (DEV_MOCK) { await wait(500); return { ...MOCK_USER, photoUrl: uri }; }
+  /////////////////////////////////////
   // FormData is the format used to send files
   const formData = new FormData();
   // Attach the file under the field name "photo" (the backend must read this same name)
