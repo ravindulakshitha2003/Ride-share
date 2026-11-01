@@ -6,6 +6,7 @@ const index = () => {
   return (
     <View style={{flex : 1 , alignItems : 'center', justifyContent: 'center'}}>
       <Text>index</Text>
+      <Link href={'/publish-ride'}>Preview map / publish ride</Link>
       <Link href={'/login'} > login  </Link>
       
       <Link href={'/register'} > register  </Link>
