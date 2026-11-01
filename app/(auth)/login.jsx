@@ -70,7 +70,7 @@ export default function Login() {
 
       // The AuthProvider now contains the logged-in user.
       // Add your authenticated destination here if needed.
-      router.replace('/');
+      router.replace('/publish-ride');
     } catch (error) {
       setApiError(getErrorMessage(error));
     } finally {
