@@ -12,7 +12,7 @@ import {
   Users,
   Tag,
 } from "lucide-react-native";
-import { COLORS } from "../theme/colors";
+import { COLORS } from "../../theme/mapColors";
 
 export default function RideDetails({
   departureDate,

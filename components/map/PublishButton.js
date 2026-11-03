@@ -8,7 +8,7 @@ import {
   Alert,
 } from "react-native";
 import { ArrowRight } from "lucide-react-native";
-import { COLORS } from "../theme/colors";
+import { COLORS } from "../../theme/mapColors";
 
 export default function PublishButton({ onPress }) {
   function handlePress() {

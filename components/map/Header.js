@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { CarFront, UserCircle } from "lucide-react-native";
-import { COLORS } from "../theme/colors";
+import { COLORS } from "../../theme/mapColors";
 
 export default function Header({ onProfilePress }) {
   return (
