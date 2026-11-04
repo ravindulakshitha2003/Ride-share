@@ -1,17 +1,12 @@
-// ─────────────────────────────────────────────────────────────
-// PAGE 2: PublishDetailsScreen  (file: Rideinfoscreen.jsx)
-// Everything except the map: date, time, seats, price, vehicle.
-// Receives the route from PublishRideScreen via params.
-// Later, extract: <VehicleSheet />, <VehicleCard />, <VehicleButton />.
-// ─────────────────────────────────────────────────────────────
+
 import React, { useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
+
 import {
   Alert,
   FlatList,
   Modal,
   Pressable,
-
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -19,30 +14,63 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
 import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import RideDetails from "../components/map/RideDetails";
 import PublishButton from "../components/map/PublishButton";
 import { COLORS } from "../theme/mapColors";
 import { publishRide } from "../api/map/routeApi";
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-const BORDER = COLORS.border || "#E5E7EB";
 
-// ── Mock registered vehicles: replace with an API call later ──
+// Indigo & Violet theme
+const THEME = {
+  primary: "#5B4BDB",
+  secondary: "#312E81",
+  accent: "#F0ABFC",
+  background: "#F8F7FF",
+  text: "#24213B",
+  white: "#FFFFFF",
+  muted: "#85819B",
+  border: "#E8E5F2",
+  overlay: "rgba(36, 33, 59, 0.55)",
+  lightPrimary: "#EEECFF",
+};
+
+// Two example vehicles
 const MOCK_VEHICLES = [
-  { id: "v1", name: "Toyota Axio", plate: "CAB-1234", type: "car", seats: 4, hasAC: true },
-  { id: "v2", name: "Suzuki Alto", plate: "KY-5678", type: "car", seats: 3, hasAC: false },
-  { id: "v3", name: "Toyota HiAce", plate: "NB-9012", type: "van", seats: 8, hasAC: true },
-  { id: "v4", name: "Honda Vezel", plate: "CBH-3456", type: "suv", seats: 4, hasAC: true },
-  { id: "v5", name: "Bajaj RE", plate: "WP-7788", type: "tuk", seats: 2, hasAC: false },
+  {
+    id: "v1",
+    name: "Toyota Axio",
+    plate: "CAB-1234",
+    type: "car",
+    seats: 4,
+    hasAC: true,
+  },
+  {
+    id: "v2",
+    name: "Suzuki Alto",
+    plate: "KY-5678",
+    type: "car",
+    seats: 3,
+    hasAC: false,
+  },
 ];
-const TYPE_ICON = { car: "car-outline", van: "bus-outline", suv: "car-sport-outline", tuk: "bicycle-outline" };
+
+const TYPE_ICON = {
+  car: "car-outline",
+  van: "bus-outline",
+  suv: "car-sport-outline",
+  tuk: "bicycle-outline",
+};
 
 function getDefaultDeparture() {
   const d = new Date();
   d.setHours(d.getHours() + 1, 0, 0, 0);
+
   const pad = (n) => String(n).padStart(2, "0");
+
   return {
     date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
     time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
@@ -53,12 +81,18 @@ export default function PublishDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  // Route chosen on page 1.
   const route = params.route ? JSON.parse(params.route) : null;
 
   const [defaultDeparture] = useState(getDefaultDeparture);
-  const [departureDate, setDepartureDate] = useState(defaultDeparture.date);
-  const [departureTime, setDepartureTime] = useState(defaultDeparture.time);
+
+  const [departureDate, setDepartureDate] = useState(
+    defaultDeparture.date
+  );
+
+  const [departureTime, setDepartureTime] = useState(
+    defaultDeparture.time
+  );
+
   const [seats, setSeats] = useState(3);
   const [price, setPrice] = useState(params.suggestedPrice || "");
   const [vehicle, setVehicle] = useState(null);
@@ -66,24 +100,60 @@ export default function PublishDetailsScreen() {
 
   function handleSelectVehicle(v) {
     setVehicle(v);
-    setSeats((s) => Math.min(s, v.seats)); // never offer more seats than the vehicle has
+    setSeats((s) => Math.min(s, v.seats));
     setSheetOpen(false);
   }
 
-  async function handlePublish() {
-    if (!route) return Alert.alert("Missing route", "Please go back and choose a route.");
+  function handleAddVehicle() {
+    setSheetOpen(false);
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(departureDate) || !/^\d{2}:\d{2}$/.test(departureTime)) {
-      return Alert.alert("Invalid date or time", "Use YYYY-MM-DD and HH:MM.");
+    router.replace('./Addvehical')
+  }
+
+  async function handlePublish() {
+    if (!route) {
+      return Alert.alert(
+        "Missing route",
+        "Please go back and choose a route."
+      );
     }
-    if (!Number.isInteger(seats) || seats < 1 || seats > 8) {
-      return Alert.alert("Invalid seats", "Choose between 1 and 8 seats.");
+
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(departureDate) ||
+      !/^\d{2}:\d{2}$/.test(departureTime)
+    ) {
+      return Alert.alert(
+        "Invalid date or time",
+        "Use YYYY-MM-DD and HH:MM."
+      );
     }
+
+    if (
+      !Number.isInteger(seats) ||
+      seats < 1 ||
+      seats > 8
+    ) {
+      return Alert.alert(
+        "Invalid seats",
+        "Choose between 1 and 8 seats."
+      );
+    }
+
     const numericPrice = Number(price);
+
     if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
-      return Alert.alert("Invalid price", "Enter a price greater than zero.");
+      return Alert.alert(
+        "Invalid price",
+        "Enter a price greater than zero."
+      );
     }
-    if (!vehicle) return Alert.alert("No vehicle", "Please choose a vehicle.");
+
+    if (!vehicle) {
+      return Alert.alert(
+        "No vehicle",
+        "Please choose a vehicle."
+      );
+    }
 
     const rideData = {
       origin: route.origin,
@@ -97,173 +167,687 @@ export default function PublishDetailsScreen() {
 
     try {
       const result = await publishRide(rideData);
-      Alert.alert("Ride published!", result.message || "Your ride was saved successfully.", [
-        { text: "OK", onPress: () => router.replace("/rideDetailsScreen") },
-      ]);
+
+      Alert.alert(
+        "Ride published!",
+        result.message ||
+          "Your ride was saved successfully.",
+        [
+          {
+            text: "OK",
+            onPress: () =>
+              router.replace("/rideDetailsScreen"),
+          },
+        ]
+      );
     } catch (error) {
       console.error("Publish ride error:", error);
-      Alert.alert("Could not publish ride", error.message);
+
+      Alert.alert(
+        "Could not publish ride",
+        error.message
+      );
     }
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor={THEME.background}
+      />
 
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <TouchableOpacity onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="arrow-back" size={22} color={COLORS.secondary} />
+        {/* Back button */}
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.back}
+        >
+          <Ionicons
+            name="arrow-back"
+            size={22}
+            color={THEME.secondary}
+          />
         </TouchableOpacity>
 
-        <Text style={styles.title}>Ride details</Text>
-        <Text style={styles.subtitle}>
-          {route ? `${route.origin.placeName} → ${route.destination.placeName}` : "When and how?"}
+        {/* Page heading */}
+        <Text style={styles.title}>
+          Ride details
         </Text>
 
-        <RideDetails
-          departureDate={departureDate}
-          setDepartureDate={setDepartureDate}
-          departureTime={departureTime}
-          setDepartureTime={setDepartureTime}
-          seats={seats}
-          setSeats={setSeats}
-          price={price}
-          setPrice={setPrice}
-        />
+        <Text style={styles.subtitle}>
+          {route
+            ? `${route.origin.placeName} → ${route.destination.placeName}`
+            : "When and how?"}
+        </Text>
 
-        {/* Vehicle picker button + current selection */}
-        {vehicle ? <VehicleCard vehicle={vehicle} selected /> : null}
-        <TouchableOpacity style={styles.vehicleButton} onPress={() => setSheetOpen(true)}>
-          <Ionicons name="car-outline" size={20} color={COLORS.primary} />
-          <Text style={styles.vehicleButtonText}>{vehicle ? "Change vehicle" : "Choose vehicle"}</Text>
-        </TouchableOpacity>
+        {/* Date, time, seats and price */}
+        <View style={styles.detailsContainer}>
+          <RideDetails
+            departureDate={departureDate}
+            setDepartureDate={setDepartureDate}
+            departureTime={departureTime}
+            setDepartureTime={setDepartureTime}
+            seats={seats}
+            setSeats={setSeats}
+            price={price}
+            setPrice={setPrice}
+          />
+        </View>
 
+        {/* Selected vehicle */}
+        <View style={styles.vehicleSection}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>
+                Your vehicle
+              </Text>
+
+              <Text style={styles.sectionSubtitle}>
+                Choose the vehicle for this ride
+              </Text>
+            </View>
+
+            <View style={styles.carBadge}>
+              <Ionicons
+                name="car-outline"
+                size={18}
+                color={THEME.primary}
+              />
+            </View>
+          </View>
+
+          {vehicle ? (
+            <VehicleCard
+              vehicle={vehicle}
+              selected
+            />
+          ) : (
+            <View style={styles.emptyVehicle}>
+              <View style={styles.emptyIcon}>
+                <Ionicons
+                  name="car-sport-outline"
+                  size={30}
+                  color={THEME.primary}
+                />
+              </View>
+
+              <Text style={styles.emptyTitle}>
+                No vehicle selected
+              </Text>
+
+              <Text style={styles.emptyText}>
+                Select a registered vehicle to continue.
+              </Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={styles.vehicleButton}
+            onPress={() => setSheetOpen(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={vehicle ? "swap-horizontal" : "add-circle-outline"}
+              size={20}
+              color={THEME.white}
+            />
+
+            <Text style={styles.vehicleButtonText}>
+              {vehicle ? "Change vehicle" : "Choose vehicle"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Publish */}
         <PublishButton onPress={handlePublish} />
       </ScrollView>
 
+      {/* Vehicle selection modal */}
       <VehicleSheet
         visible={sheetOpen}
         vehicles={MOCK_VEHICLES}
         selectedId={vehicle?.id}
         onClose={() => setSheetOpen(false)}
         onSelect={handleSelectVehicle}
+        onAddVehicle={handleAddVehicle}
       />
     </SafeAreaView>
   );
 }
 
-// ── Bottom sheet covering 3/4 of the screen. Extract to a component later. ──
-function VehicleSheet({ visible, vehicles, selectedId, onClose, onSelect }) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
+// =====================================
+// VEHICLE SELECTION BOTTOM SHEET
+// =====================================
 
-        <SafeAreaView style={styles.sheet}>
+function VehicleSheet({
+  visible,
+  vehicles,
+  selectedId,
+  onClose,
+  onSelect,
+  onAddVehicle,
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="slide"
+      statusBarTranslucent={true}
+      navigationBarTranslucent={true}
+      onRequestClose={onClose}
+    >
+      <View style={styles.overlay}>
+
+        {/* Dark transparent background */}
+        <Pressable
+          style={styles.backdrop}
+          onPress={onClose}
+        />
+
+        {/* Bottom sheet */}
+        <SafeAreaView
+          style={styles.sheet}
+          edges={["bottom"]}
+        >
           <View style={styles.handle} />
+
+          {/* Sheet heading */}
           <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Choose vehicle</Text>
-            <TouchableOpacity onPress={onClose} accessibilityLabel="Close">
-              <Ionicons name="close" size={24} color={COLORS.secondary} />
+            <View style={styles.sheetHeadingContent}>
+              <Text style={styles.sheetTitle}>
+                My Vehicles
+              </Text>
+
+              <Text style={styles.sheetSubtitle}>
+                Select a vehicle for your ride
+              </Text>
+            </View>
+
+            {/* Add vehicle button */}
+            <TouchableOpacity
+              style={styles.addVehicleButton}
+              onPress={onAddVehicle}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="add"
+                size={20}
+                color={THEME.white}
+              />
+
+              <Text style={styles.addVehicleText}>
+                Add Vehicle
+              </Text>
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.listLabel}>
+            <Text style={styles.listLabelText}>
+              REGISTERED VEHICLES
+            </Text>
+
+            <Text style={styles.vehicleCount}>
+              {vehicles.length}
+            </Text>
           </View>
 
           <FlatList
             data={vehicles}
             keyExtractor={(v) => v.id}
             showsVerticalScrollIndicator={false}
-            ListEmptyComponent={<Text style={styles.note}>No registered vehicles.</Text>}
+            contentContainerStyle={styles.vehicleList}
+            ListEmptyComponent={
+              <View style={styles.emptyList}>
+                <Ionicons
+                  name="car-outline"
+                  size={40}
+                  color={THEME.muted}
+                />
+
+                <Text style={styles.emptyTitle}>
+                  No registered vehicles
+                </Text>
+
+                <Text style={styles.emptyText}>
+                  Add your vehicle to publish a ride.
+                </Text>
+              </View>
+            }
             renderItem={({ item }) => (
-              <TouchableOpacity activeOpacity={0.7} onPress={() => onSelect(item)}>
-                <VehicleCard vehicle={item} selected={item.id === selectedId} />
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => onSelect(item)}
+              >
+                <VehicleCard
+                  vehicle={item}
+                  selected={item.id === selectedId}
+                />
               </TouchableOpacity>
             )}
           />
+
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={onClose}
+          >
+            <Text style={styles.cancelText}>
+              Cancel
+            </Text>
+          </TouchableOpacity>
+
         </SafeAreaView>
       </View>
     </Modal>
   );
 }
 
-// ── One vehicle row. Extract to a component later. ──
+// =====================================
+// VEHICLE CARD
+// =====================================
+
 function VehicleCard({ vehicle, selected }) {
   return (
-    <View style={[styles.vehicleCard, selected && styles.vehicleSelected]}>
-      <View style={styles.vehicleIcon}>
-        <Ionicons name={TYPE_ICON[vehicle.type] || "car-outline"} size={22} color="#fff" />
+    <View
+      style={[
+        styles.vehicleCard,
+        selected && styles.vehicleSelected,
+      ]}
+    >
+      <View
+        style={[
+          styles.vehicleIcon,
+          selected && styles.vehicleIconSelected,
+        ]}
+      >
+        <Ionicons
+          name={TYPE_ICON[vehicle.type] || "car-outline"}
+          size={25}
+          color={selected ? THEME.white : THEME.primary}
+        />
       </View>
-      <View style={styles.flex}>
-        <Text style={styles.vehicleName}>{vehicle.name}</Text>
-        <Text style={styles.note}>
-          {vehicle.plate} · {vehicle.seats} seats{vehicle.hasAC ? " · A/C" : ""}
+
+      <View style={styles.vehicleInfo}>
+        <Text style={styles.vehicleName}>
+          {vehicle.name}
         </Text>
+
+        <Text style={styles.vehiclePlate}>
+          {vehicle.plate}
+        </Text>
+
+        <View style={styles.vehicleMeta}>
+          <View style={styles.metaItem}>
+            <Ionicons
+              name="people-outline"
+              size={14}
+              color={THEME.muted}
+            />
+
+            <Text style={styles.metaText}>
+              {vehicle.seats} seats
+            </Text>
+          </View>
+
+          <View style={styles.metaItem}>
+            <Ionicons
+              name="snow-outline"
+              size={14}
+              color={THEME.muted}
+            />
+
+            <Text style={styles.metaText}>
+              {vehicle.hasAC ? "A/C" : "Non A/C"}
+            </Text>
+          </View>
+        </View>
       </View>
-      {selected ? <Ionicons name="checkmark-circle" size={22} color={COLORS.primary} /> : null}
+
+      {selected ? (
+        <Ionicons
+          name="checkmark-circle"
+          size={24}
+          color={THEME.primary}
+        />
+      ) : (
+        <View style={styles.unselectedCircle} />
+      )}
     </View>
   );
 }
 
+// =====================================
+// STYLES
+// =====================================
+
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.background },
-  content: { flexGrow: 1, paddingHorizontal: 18, paddingTop: 15, paddingBottom: 120 },
-  flex: { flex: 1 },
-  back: { marginBottom: 12, alignSelf: "flex-start" },
-  title: { fontSize: 25, fontWeight: "800", color: COLORS.secondary },
-  subtitle: { fontSize: 13, color: COLORS.muted, marginTop: 4, marginBottom: 19 },
-  note: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  safeArea: {
+    flex: 1,
+    backgroundColor: THEME.background,
+  },
+
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 110,
+  },
+
+  back: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: THEME.white,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+
+  title: {
+    fontSize: 27,
+    fontWeight: "800",
+    color: THEME.text,
+    letterSpacing: -0.6,
+  },
+
+  subtitle: {
+    fontSize: 13,
+    color: THEME.muted,
+    marginTop: 6,
+    marginBottom: 24,
+  },
+
+  detailsContainer: {
+    backgroundColor: THEME.white,
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    marginBottom: 24,
+  },
+
+  vehicleSection: {
+    marginBottom: 24,
+  },
+
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+
+  sectionTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: THEME.text,
+  },
+
+  sectionSubtitle: {
+    fontSize: 12,
+    color: THEME.muted,
+    marginTop: 4,
+  },
+
+  carBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: THEME.lightPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  emptyVehicle: {
+    backgroundColor: THEME.white,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    borderStyle: "dashed",
+    borderRadius: 18,
+    alignItems: "center",
+    padding: 22,
+  },
+
+  emptyIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 20,
+    backgroundColor: THEME.lightPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: THEME.text,
+    marginTop: 8,
+  },
+
+  emptyText: {
+    fontSize: 12,
+    color: THEME.muted,
+    marginTop: 5,
+    textAlign: "center",
+  },
 
   vehicleButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    borderRadius: 14,
-    paddingVertical: 14,
-    marginVertical: 12,
+    backgroundColor: THEME.primary,
+    borderRadius: 15,
+    paddingVertical: 15,
+    marginTop: 14,
+    gap: 9,
   },
-  vehicleButtonText: { color: COLORS.primary, fontSize: 15, fontWeight: "600" },
+
+  vehicleButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: THEME.white,
+  },
+
+  // Modal overlay
+  overlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "transparent",
+  },
+
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: THEME.overlay,
+  },
 
   // Bottom sheet
-  overlay: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.4)" },
   sheet: {
-    height: "75%",
-    backgroundColor: COLORS.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    height: "72%",
+    backgroundColor: THEME.background,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    overflow: "hidden",
   },
-  handle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: BORDER, marginBottom: 12 },
-  sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  sheetTitle: { fontSize: 20, fontWeight: "800", color: COLORS.secondary },
 
-  // Vehicle card
+  handle: {
+    alignSelf: "center",
+    width: 42,
+    height: 5,
+    borderRadius: 10,
+    backgroundColor: "#D6D1E8",
+    marginBottom: 22,
+  },
+
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 25,
+  },
+
+  sheetHeadingContent: {
+    flex: 1,
+  },
+
+  sheetTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: THEME.text,
+  },
+
+  sheetSubtitle: {
+    fontSize: 12,
+    color: THEME.muted,
+    marginTop: 5,
+  },
+
+  addVehicleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: THEME.primary,
+    borderRadius: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 11,
+    gap: 3,
+  },
+
+  addVehicleText: {
+    color: THEME.white,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  listLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 13,
+  },
+
+  listLabelText: {
+    color: THEME.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+
+  vehicleCount: {
+    color: THEME.primary,
+    backgroundColor: THEME.lightPrimary,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+
+  vehicleList: {
+    paddingBottom: 12,
+  },
+
   vehicleCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: BORDER,
+    backgroundColor: THEME.white,
+    borderRadius: 17,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: THEME.border,
+    gap: 13,
   },
-  vehicleSelected: { borderColor: COLORS.primary, borderWidth: 2 },
+
+  vehicleSelected: {
+    borderColor: THEME.primary,
+    backgroundColor: "#F4F2FF",
+  },
+
   vehicleIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.primary,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: THEME.lightPrimary,
     alignItems: "center",
     justifyContent: "center",
   },
-  vehicleName: { fontSize: 16, fontWeight: "600", color: COLORS.secondary },
+
+  vehicleIconSelected: {
+    backgroundColor: THEME.primary,
+  },
+
+  vehicleInfo: {
+    flex: 1,
+  },
+
+  vehicleName: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: THEME.text,
+  },
+
+  vehiclePlate: {
+    fontSize: 12,
+    color: THEME.muted,
+    marginTop: 3,
+  },
+
+  vehicleMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginTop: 9,
+  },
+
+  metaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  metaText: {
+    fontSize: 11,
+    color: THEME.muted,
+    fontWeight: "500",
+  },
+
+  unselectedCircle: {
+    width: 21,
+    height: 21,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: THEME.border,
+  },
+
+  emptyList: {
+    alignItems: "center",
+    paddingVertical: 35,
+  },
+
+  cancelButton: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    backgroundColor: THEME.white,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 5,
+    marginBottom: 8,
+  },
+
+  cancelText: {
+    color: THEME.secondary,
+    fontSize: 14,
+    fontWeight: "700",
+  },
 });
