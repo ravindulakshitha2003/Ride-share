@@ -7,6 +7,7 @@ const index = () => {
     <View style={{flex : 1 , alignItems : 'center', justifyContent: 'center'}}>
       <Text>index</Text>
       <Link href={'/login'} > login  </Link>
+      <Link href={'/publish-ride'} > publish-ride </Link>
       
       <Link href={'/register'} > register  </Link>
       <Link href={'/profile'} > profile  </Link>
