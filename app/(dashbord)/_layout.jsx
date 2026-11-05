@@ -1,34 +1,30 @@
 
-import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../../theme/colors';
+import { Tabs } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { colors } from "../../theme/colors";
 
 export default function DashboardLayout() {
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.secondary,
 
         tabBarStyle: {
-          position: 'absolute',
+          position: "absolute",
           bottom: 14,
           left: 16,
           right: 16,
           height: 72,
-
           paddingTop: 9,
           paddingBottom: 9,
           paddingHorizontal: 8,
-
           backgroundColor: colors.white,
           borderRadius: 24,
           borderTopWidth: 0,
           borderWidth: 1,
           borderColor: colors.border,
-
           elevation: 10,
           shadowColor: colors.secondary,
           shadowOffset: { width: 0, height: 5 },
@@ -38,7 +34,7 @@ export default function DashboardLayout() {
 
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '700',
+          fontWeight: "700",
           marginTop: 3,
         },
 
@@ -50,15 +46,13 @@ export default function DashboardLayout() {
         tabBarHideOnKeyboard: true,
       }}
     >
-      
-
       <Tabs.Screen
         name="rideDetailsScreen"
         options={{
-          title: 'My Rides',
+          title: "My Rides",
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
-              name={focused ? 'car' : 'car-outline'}
+              name={focused ? "car" : "car-outline"}
               size={25}
               color={color}
             />
@@ -69,14 +63,38 @@ export default function DashboardLayout() {
       <Tabs.Screen
         name="resultsScreen"
         options={{
-          title: 'Explore',
+          title: "Explore",
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
-              name={
-                focused
-                  ? 'compass'
-                  : 'compass-outline'
-              }
+              name={focused ? "compass" : "compass-outline"}
+              size={25}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? "person-circle" : "person-circle-outline"}
+              size={25}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="publish-ride"
+        options={{
+          title: "Publish Ride",
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? "add-circle" : "add-circle-outline"}
               size={25}
               color={color}
             />
@@ -84,22 +102,14 @@ export default function DashboardLayout() {
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="Rideinfoscreen"
         options={{
-          title: 'Profile',
-          tabBarIcon: ({ focused, color }) => (
-            <Ionicons
-              name={
-                focused
-                  ? 'person-circle'
-                  : 'person-circle-outline'
-              }
-              size={25}
-              color={color}
-            />
-          ),
-        }}
+    href: null,
+  }}
       />
+
+      {/* Hidden from bottom navigation, but still navigable */}
+      
     </Tabs>
   );
 }
