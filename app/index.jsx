@@ -8,9 +8,11 @@ const index = () => {
       <Text>index</Text>
       <Link href={'/publish-ride'}>Preview map / publish ride</Link>
       <Link href={'/login'} > login  </Link>
+      <Link href={'/publish-ride'} > publish-ride </Link>
       
       <Link href={'/register'} > register  </Link>
       <Link href={'/profile'} > profile  </Link>
+      <Link href={'/Vehicle'} > vehical more details  </Link>
     </View>
   )
 }

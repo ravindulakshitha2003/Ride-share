@@ -1,6 +1,7 @@
 
 import React, { useState, useRef } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
+
 import { completeMapPickerSelection } from "../context/mapNavigation";
 import { getApiBaseUrl } from "../api/map/baseUrl";
 
@@ -16,6 +17,7 @@ import {
 } from "react-native";
 
 import { WebView } from "react-native-webview";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const API_URL = getApiBaseUrl();
 
@@ -100,7 +102,6 @@ function createMapHtml(latitude, longitude) {
       );
     });
 
-    // Called by React Native after selecting a search result.
     window.moveMapTo = function(lat, lng) {
       const position = [lat, lng];
 
@@ -122,24 +123,23 @@ function createMapHtml(latitude, longitude) {
 export default function MapPickerScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const initialLocation = {
-    latitude: Number(params.latitude),
-    longitude: Number(params.longitude),
-    placeName: params.placeName || "",
-  };
 
   const mapRef = useRef(null);
 
-  const [location, setLocation] = useState(() => {
-    const lat = Number(initialLocation?.latitude);
-    const lng = Number(initialLocation?.longitude);
+  const initialLat = Number(params.latitude);
+  const initialLng = Number(params.longitude);
 
-    return {
-      latitude: Number.isFinite(lat) ? lat : INITIAL_LAT,
-      longitude: Number.isFinite(lng) ? lng : INITIAL_LNG,
-      placeName: initialLocation?.placeName || "",
-    };
-  });
+  const [location, setLocation] = useState(() => ({
+    latitude: Number.isFinite(initialLat)
+      ? initialLat
+      : INITIAL_LAT,
+
+    longitude: Number.isFinite(initialLng)
+      ? initialLng
+      : INITIAL_LNG,
+
+    placeName: params.placeName || "",
+  }));
 
   const [searchText, setSearchText] = useState("");
   const [results, setResults] = useState([]);
@@ -147,7 +147,7 @@ export default function MapPickerScreen() {
   const [mapReady, setMapReady] = useState(false);
   const [searchError, setSearchError] = useState("");
 
-  // Search places through the backend.
+  // Search places through backend.
   async function searchPlaces() {
     const query = searchText.trim();
 
@@ -184,31 +184,51 @@ export default function MapPickerScreen() {
 
     } catch (error) {
       console.error("Place search error:", error);
-      setSearchError(error.message || "Unable to search places.");
+
+      setSearchError(
+        error.message || "Unable to search places."
+      );
+
     } finally {
       setSearching(false);
     }
   }
 
-  // Select a search result and move the Leaflet map.
+  // Select a search result.
   function selectPlace(place) {
+    const latitude = Number(place.latitude);
+    const longitude = Number(place.longitude);
+
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      latitude < -90 ||
+      latitude > 90 ||
+      longitude < -180 ||
+      longitude > 180
+    ) {
+      setSearchError("Invalid location coordinates.");
+      return;
+    }
+
     const selectedLocation = {
-      latitude: place.latitude,
-      longitude: place.longitude,
-      placeName: place.placeName,
+      latitude,
+      longitude,
+      placeName: place.placeName || "",
     };
 
     setLocation(selectedLocation);
-    setSearchText(place.placeName);
+    setSearchText(selectedLocation.placeName);
     setResults([]);
     setSearchError("");
+
     Keyboard.dismiss();
 
     const javascript = `
       if (window.moveMapTo) {
         window.moveMapTo(
-          ${place.latitude},
-          ${place.longitude}
+          ${latitude},
+          ${longitude}
         );
       }
       true;
@@ -217,7 +237,7 @@ export default function MapPickerScreen() {
     mapRef.current?.injectJavaScript(javascript);
   }
 
-  // Receive coordinates from Leaflet.
+  // Receive messages from Leaflet.
   function handleMapMessage(event) {
     try {
       const data = JSON.parse(event.nativeEvent.data);
@@ -253,7 +273,10 @@ export default function MapPickerScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView
+      style={styles.container}
+      edges={["top", "bottom"]}
+    >
 
       {/* Search section */}
       <View style={styles.searchPanel}>
@@ -318,9 +341,9 @@ export default function MapPickerScreen() {
                 </Text>
 
                 <Text style={styles.resultCoordinates}>
-                  {item.latitude.toFixed(5)},
+                  {Number(item.latitude).toFixed(5)},
                   {" "}
-                  {item.longitude.toFixed(5)}
+                  {Number(item.longitude).toFixed(5)}
                 </Text>
               </TouchableOpacity>
             )}
@@ -331,6 +354,7 @@ export default function MapPickerScreen() {
 
       {/* Leaflet map */}
       <View style={styles.mapContainer}>
+
         <WebView
           ref={mapRef}
           style={styles.map}
@@ -345,6 +369,7 @@ export default function MapPickerScreen() {
           domStorageEnabled
           onMessage={handleMapMessage}
         />
+
       </View>
 
       {/* Confirmation panel */}
@@ -355,7 +380,10 @@ export default function MapPickerScreen() {
         </Text>
 
         {!!location.placeName && (
-          <Text style={styles.placeName} numberOfLines={2}>
+          <Text
+            style={styles.placeName}
+            numberOfLines={2}
+          >
             {location.placeName}
           </Text>
         )}
@@ -383,7 +411,7 @@ export default function MapPickerScreen() {
 
       </View>
 
-    </View>
+    </SafeAreaView>
   );
 }
 
