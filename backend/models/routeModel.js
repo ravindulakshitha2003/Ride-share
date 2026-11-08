@@ -1,7 +1,7 @@
 
 const mongoose = require("mongoose");
 
-// Schema for origin and destination
+// Origin and destination schema
 const locationSchema = new mongoose.Schema(
     {
         placeName: {
@@ -25,7 +25,24 @@ const locationSchema = new mongoose.Schema(
     { _id: false }
 );
 
-// MongoDB schema for a published route
+// Complete road route geometry (GeoJSON)
+const routeGeometrySchema = new mongoose.Schema(
+    {
+        type: {
+            type: String,
+            enum: ["LineString"],
+            required: true,
+            default: "LineString"
+        },
+        coordinates: {
+            type: [[Number]],
+            required: true
+        }
+    },
+    { _id: false }
+);
+
+// Published route schema
 const routeSchema = new mongoose.Schema(
     {
         origin: {
@@ -34,6 +51,10 @@ const routeSchema = new mongoose.Schema(
         },
         destination: {
             type: locationSchema,
+            required: true
+        },
+        routeGeometry: {
+            type: routeGeometrySchema,
             required: true
         },
         departureDate: {
@@ -77,18 +98,22 @@ const routeSchema = new mongoose.Schema(
     }
 );
 
-// Keep a string ID for compatibility with the existing controller
+// Geospatial index for passenger route matching
+routeSchema.index({ routeGeometry: "2dsphere" });
+
+// Keep string ID compatibility
 routeSchema.virtual("id").get(function () {
     return this._id.toString();
 });
 
 const RouteDocument = mongoose.model("Route", routeSchema);
 
-// Keep the existing model interface
+// Get all routes
 async function getAll() {
     return RouteDocument.find().sort({ createdAt: -1 });
 }
 
+// Get route by ID
 async function getById(id) {
     if (!mongoose.isValidObjectId(id)) {
         return null;
@@ -97,18 +122,12 @@ async function getById(id) {
     return RouteDocument.findById(id);
 }
 
+// Create route
 async function create(data) {
     return RouteDocument.create({
-        origin: {
-            placeName: data.origin.placeName,
-            latitude: data.origin.latitude,
-            longitude: data.origin.longitude
-        },
-        destination: {
-            placeName: data.destination.placeName,
-            latitude: data.destination.latitude,
-            longitude: data.destination.longitude
-        },
+        origin: data.origin,
+        destination: data.destination,
+        routeGeometry: data.routeGeometry,
         departureDate: data.departureDate,
         departureTime: data.departureTime,
         availableSeats: data.availableSeats,

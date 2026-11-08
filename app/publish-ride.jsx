@@ -19,6 +19,7 @@ import RoutePreview from "../components/map/route/RoutePreview";
 import PublishButton from "../components/map/PublishButton";
 import { COLORS } from "../theme/mapColors";
 import { publishRide } from "../api/map/routeApi";
+
 function getDefaultDeparture() {
   const departure = new Date();
   departure.setHours(departure.getHours() + 1, 0, 0, 0);
@@ -48,15 +49,20 @@ export default function PublishRideScreen() {
   const [departureTime, setDepartureTime] = useState(defaultDeparture.time);
   const [seats, setSeats] = useState(3);
   const [price, setPrice] = useState("");
+  const [routeGeometry, setRouteGeometry] = useState(null);
 
   const PRICE_PER_KM = 10;
 
-const handleRouteCalculated = useCallback(({ distanceKm }) => {
-  const suggestedPrice =
-    Math.round((distanceKm * PRICE_PER_KM) / 50) * 50;
+const handleRouteCalculated = useCallback(
+  ({ distanceKm, routeGeometry }) => {
+    const suggestedPrice =
+      Math.round((distanceKm * PRICE_PER_KM) / 50) * 50;
 
-  setPrice(String(suggestedPrice));
-}, []);
+    setPrice(String(suggestedPrice));
+    setRouteGeometry(routeGeometry ?? null);
+  },
+  []
+);
 
   function openMapPicker(type) {
     const isOrigin = type === "origin";
@@ -133,6 +139,17 @@ async function handlePublish() {
     Alert.alert("Invalid price", "Enter a price greater than zero.");
     return;
   }
+  if (
+  routeGeometry?.type !== "LineString" ||
+  !Array.isArray(routeGeometry.coordinates) ||
+  routeGeometry.coordinates.length < 2
+  ) {
+    Alert.alert(
+      "Route not ready",
+      "Wait for the route map to calculate the route, then try again."
+    );
+  return;
+}
 
   const rideData = {
     origin: {
@@ -145,6 +162,7 @@ async function handlePublish() {
       latitude: destinationCoordinates.latitude,
       longitude: destinationCoordinates.longitude,
     },
+    routeGeometry,
     departureDate,
     departureTime,
     availableSeats: seats,

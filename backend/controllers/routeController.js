@@ -13,7 +13,28 @@ function validLocation(p) {
     );
 }
 
-// Get all published routes from MongoDB
+// Validate OSRM GeoJSON route coordinates
+function validRouteGeometry(geometry) {
+    if (
+        !geometry ||
+        geometry.type !== "LineString" ||
+        !Array.isArray(geometry.coordinates) ||
+        geometry.coordinates.length < 2
+    ) {
+        return false;
+    }
+
+    return geometry.coordinates.every(point =>
+        Array.isArray(point) &&
+        point.length === 2 &&
+        Number.isFinite(point[0]) &&
+        Number.isFinite(point[1]) &&
+        Math.abs(point[0]) <= 180 &&
+        Math.abs(point[1]) <= 90
+    );
+}
+
+// Get all published routes
 async function getRoutes(req, res, next) {
     try {
         const routes = await Route.getAll();
@@ -29,18 +50,22 @@ async function createRoute(req, res, next) {
         const {
             origin,
             destination,
+            routeGeometry,
             departureDate,
             departureTime,
             availableSeats,
-            pricePerSeat
+            pricePerSeat,
+            driverId
         } = req.body || {};
 
+        // Validate origin and destination
         if (!validLocation(origin) || !validLocation(destination)) {
             return res.status(400).json({
                 message: "Select valid origin and destination locations."
             });
         }
 
+        // Check same location
         if (
             origin.latitude === destination.latitude &&
             origin.longitude === destination.longitude
@@ -50,11 +75,19 @@ async function createRoute(req, res, next) {
             });
         }
 
+        // Validate complete route geometry
+        if (!validRouteGeometry(routeGeometry)) {
+            return res.status(400).json({
+                message: "Provide valid OSRM route geometry with at least two coordinates."
+            });
+        }
+
+        // Validate date and time
         if (
             typeof departureDate !== "string" ||
             typeof departureTime !== "string" ||
             !/^\d{4}-\d{2}-\d{2}$/.test(departureDate) ||
-            !/^\d{2}:\d{2}$/.test(departureTime)
+            !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(departureTime)
         ) {
             return res.status(400).json({
                 message: "Provide a valid departure date and time."
@@ -79,6 +112,7 @@ async function createRoute(req, res, next) {
             });
         }
 
+        // Validate seats
         if (
             !Number.isInteger(availableSeats) ||
             availableSeats < 1 ||
@@ -89,6 +123,7 @@ async function createRoute(req, res, next) {
             });
         }
 
+        // Validate price
         if (
             typeof pricePerSeat !== "number" ||
             !Number.isFinite(pricePerSeat) ||
@@ -99,21 +134,29 @@ async function createRoute(req, res, next) {
             });
         }
 
+        // Create route in MongoDB
         const route = await Route.create({
             origin,
             destination,
+            routeGeometry,
             departureDate,
             departureTime,
             availableSeats,
-            pricePerSeat
+            pricePerSeat,
+            driverId
         });
 
         console.log("Route published:", route.id);
+        console.log(
+            "Route coordinate count:",
+            routeGeometry.coordinates.length
+        );
 
         return res.status(201).json({
             message: "Route published successfully.",
             route
         });
+
     } catch (error) {
         return next(error);
     }

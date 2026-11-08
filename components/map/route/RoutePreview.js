@@ -56,6 +56,7 @@ export default function RoutePreview({
   onRouteCalculatedRef.current?.({
     distanceKm: Number(route.distanceKm),
     durationMinutes: route.durationMinutes,
+    routeGeometry: route.geometry,
   });
 }, []);
 
