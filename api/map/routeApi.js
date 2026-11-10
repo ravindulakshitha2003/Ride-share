@@ -15,7 +15,7 @@ export async function testBackendConnection() {
         Accept: "application/json",
       },
     });
-
+    console.log(response)
     console.log("Backend GET status:", response.status);
 
     if (!response.ok) {
@@ -41,6 +41,7 @@ export async function publishRide(rideData) {
   console.log("Publishing RouteMate ride");
   console.log("API URL:", url);
   console.log("Ride data:", JSON.stringify(rideData, null, 2));
+  console.log(rideData)
 
   try {
     const response = await fetch(url, {
