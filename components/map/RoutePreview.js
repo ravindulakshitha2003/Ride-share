@@ -1,530 +1,310 @@
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  StatusBar,
-} from "react-native";
-import { WebView } from "react-native-webview";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useRouter } from "expo-router";
+import { Alert, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
+import { useRoute } from "../../context/RouteContext";
+import { setMapPickerSelectionHandler } from "../../context/mapNavigation";
 
+import Header from "../../components/map/Header";
+import LocationCard from "../../components/map/LocationCard";
+import RoutePreview from "../../components/map/route/RoutePreview";
+import RouteProgress from "../../components/map/RouteProgress";
+import { COLORS } from "../../theme/mapColors";
 
-const OSRM_URL = "https://router.project-osrm.org/route/v1/driving";
+const PRICE_PER_KM = 10;
+const ROUTE_TIMEOUT_MS = 20000;
 
-// Any https URL works; it only gives the WebView a real origin/Referer
-// so OpenStreetMap tile servers accept the tile requests.
-const WEBVIEW_BASE_URL = "https://localhost/";
-
-// Safely embed JSON inside a <script> tag.
-function safeJson(value) {
-  return JSON.stringify(value)
-    .replace(/</g, "\\u003c")
-    .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
+// Accept any of the shapes your RoutePreview might return and
+// always produce [{ latitude, longitude }, ...]
+function extractPoints(route) {
+  if (!route) return [];
+  if (Array.isArray(route.routeCoordinates) && route.routeCoordinates.length) {
+    return route.routeCoordinates;
+  }
+  if (Array.isArray(route.coordinates) && route.coordinates.length) {
+    return route.coordinates.map((c) =>
+      Array.isArray(c) ? { latitude: c[1], longitude: c[0] } : c
+    );
+  }
+  const geo = route.geometry?.coordinates;
+  if (Array.isArray(geo) && geo.length) {
+    return geo.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+  }
+  return [];
 }
 
+// TODO: replace with your real endpoint
+async function saveRouteToBackend(payload) {
+  const res = await fetch("https://YOUR_API/rides/route", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Server error ${res.status}`);
+  return res.json();
+}
 
-function createRouteMapHtml(routes, selectedIndex, origin, destination) {
-  const routesJson = safeJson(routes);
-  const originJson = safeJson(origin);
-  const destinationJson = safeJson(destination);
+export default function PublishRideScreen() {
+  const router = useRouter();
+  const { routeData, saveRoute, clearRoute } = useRoute();
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>
-    html, body, #map {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
+  const [origin, setOrigin] = useState("Jaffna");
+  const [destination, setDestination] = useState("Vavuniya");
+  const [originCoordinates, setOriginCoordinates] = useState({ latitude: 9.6615, longitude: 80.0255 });
+  const [destinationCoordinates, setDestinationCoordinates] = useState({ latitude: 8.7514, longitude: 80.4971 });
+  const [suggestedPrice, setSuggestedPrice] = useState("");
+
+  // "idle" | "calculating" | "ready" | "error"
+  const [phase, setPhase] = useState("calculating");
+  // "idle" | "saving" | "saved" | "error"
+  const [uploadPhase, setUploadPhase] = useState("idle");
+
+  // Keep latest values in a ref so the callback below never changes identity.
+  // A stable callback is what stops RoutePreview from recalculating in a loop.
+  const latest = useRef({});
+  latest.current = { origin, destination, originCoordinates, destinationCoordinates, saveRoute };
+
+  const handleRouteCalculated = useCallback((calculated) => {
+    // Ignore "clearing" calls. Calling clearRoute() here causes a render loop.
+    if (!calculated) return;
+
+    const selected = calculated.selectedRoute ?? calculated;
+    const points = extractPoints(selected);
+    const distanceKm = calculated.distanceKm ?? selected.distanceKm;
+    const durationMinutes = calculated.durationMinutes ?? selected.durationMinutes;
+
+    if (!points.length || !Number.isFinite(distanceKm)) return;
+
+    const { origin, destination, originCoordinates, destinationCoordinates, saveRoute } = latest.current;
+    if (!originCoordinates || !destinationCoordinates) return;
+
+    setSuggestedPrice(String(Math.round((distanceKm * PRICE_PER_KM) / 50) * 50));
+
+    saveRoute({
+      origin: {
+        placeName: origin.trim(),
+        latitude: Number(originCoordinates.latitude),
+        longitude: Number(originCoordinates.longitude),
+      },
+      destination: {
+        placeName: destination.trim(),
+        latitude: Number(destinationCoordinates.latitude),
+        longitude: Number(destinationCoordinates.longitude),
+      },
+      selectedRoute: {
+        ...selected,
+        distanceKm,
+        durationMinutes,
+        routeCoordinates: points, // normalized, always present
+      },
+      savedAt: new Date().toISOString(),
+    });
+
+    setPhase("ready");
+  }, []);
+
+  // Whenever the endpoints change, restart the calculating phase with a timeout
+  // so the screen can never wait forever.
+  useEffect(() => {
+    if (!originCoordinates || !destinationCoordinates) {
+      setPhase("idle");
+      return;
     }
-  </style>
-</head>
-<body>
-<div id="map"></div>
+    setPhase("calculating");
+    const t = setTimeout(() => {
+      setPhase((p) => (p === "calculating" ? "error" : p));
+    }, ROUTE_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [originCoordinates, destinationCoordinates]);
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-  const map = L.map("map", { zoomControl: false });
+  function resetRoute() {
+    clearRoute();
+    setSuggestedPrice("");
+    setUploadPhase("idle");
+  }
 
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors"
-  }).addTo(map);
+  function openMapPicker(type) {
+    const isOrigin = type === "origin";
+    const setCoords = isOrigin ? setOriginCoordinates : setDestinationCoordinates;
+    const setName = isOrigin ? setOrigin : setDestination;
 
-  const routes = ${routesJson};
-  const origin = ${originJson};
-  const destination = ${destinationJson};
+    setMapPickerSelectionHandler((location) => {
+      setCoords({ latitude: location.latitude, longitude: location.longitude });
+      setName(
+        location.placeName ||
+          `Selected location (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`
+      );
+      resetRoute();
+    });
 
-  let selectedIndex = ${selectedIndex};
-  const routeLayers = [];
-
-  function drawRoutes() {
-    routeLayers.forEach(layer => map.removeLayer(layer));
-    routeLayers.length = 0;
-
-    routes.forEach((route, index) => {
-      const selected = index === selectedIndex;
-
-      const layer = L.geoJSON(route.geometry, {
-        style: {
-          color: selected ? "#2563EB" : "#E53935",
-          weight: selected ? 7 : 5,
-          opacity: selected ? 1 : 0.75
-        }
-      }).addTo(map);
-
-      layer.on("click", () => {
-        selectedIndex = index;
-        drawRoutes();
-
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: "routeSelected",
-          index: index
-        }));
-      });
-
-      routeLayers.push(layer);
+    const initial = isOrigin ? originCoordinates : destinationCoordinates;
+    router.push({
+      pathname: "/map-picker",
+      params: {
+        latitude: String(initial?.latitude ?? 9.6615),
+        longitude: String(initial?.longitude ?? 80.0255),
+        placeName: isOrigin ? origin : destination,
+      },
     });
   }
 
-  L.marker([origin.latitude, origin.longitude])
-    .addTo(map).bindPopup("Pickup");
-
-  L.marker([destination.latitude, destination.longitude])
-    .addTo(map).bindPopup("Destination");
-
-  drawRoutes();
-
-  const allCoordinates = routes.flatMap(route =>
-    route.geometry.coordinates.map(point => [point[1], point[0]])
-  );
-
-  if (allCoordinates.length) {
-    map.fitBounds(allCoordinates, { padding: [25, 25] });
+  function swapLocations() {
+    setOrigin(destination);
+    setDestination(origin);
+    setOriginCoordinates(destinationCoordinates);
+    setDestinationCoordinates(originCoordinates);
+    resetRoute();
   }
-</script>
-</body>
-</html>`;
-}
 
+  async function handleNext() {
+    if (!origin.trim() || !destination.trim()) {
+      return Alert.alert("Missing location", "Choose both pickup and destination.");
+    }
+    if (!originCoordinates || !destinationCoordinates) {
+      return Alert.alert("Choose locations on the map", "Please select both locations using the map.");
+    }
+    if (
+      originCoordinates.latitude === destinationCoordinates.latitude &&
+      originCoordinates.longitude === destinationCoordinates.longitude
+    ) {
+      return Alert.alert("Invalid route", "Choose two different locations.");
+    }
 
-export default function RoutePreview({
-  origin,
-  destination,
-  originCoordinates,
-  destinationCoordinates,
-  onRouteCalculated,
-}) {
-  const [routes, setRoutes] = useState([]);
-  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [mapExpanded, setMapExpanded] = useState(false);
+    const savedRoute = routeData?.selectedRoute;
+    if (phase !== "ready" || !savedRoute?.routeCoordinates?.length) {
+      return Alert.alert("Route not ready", "Please wait until the route is calculated.");
+    }
 
-  const originLat = originCoordinates?.latitude;
-  const originLng = originCoordinates?.longitude;
-  const destinationLat = destinationCoordinates?.latitude;
-  const destinationLng = destinationCoordinates?.longitude;
-
-  
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let cancelled = false;
-
-    async function calculateRoute() {
-      if (
-        originLat == null ||
-        originLng == null ||
-        destinationLat == null ||
-        destinationLng == null
-      ) {
-        setLoading(false);
-        setRoutes([]);
-        setSelectedRouteIndex(0);
-        setError("Select both locations on the map");
-        return;
-      }
-
-      const oLat = Number(originLat);
-      const oLng = Number(originLng);
-      const dLat = Number(destinationLat);
-      const dLng = Number(destinationLng);
-
-      if (
-        !Number.isFinite(oLat) ||
-        !Number.isFinite(oLng) ||
-        !Number.isFinite(dLat) ||
-        !Number.isFinite(dLng) ||
-        Math.abs(oLat) > 90 ||
-        Math.abs(dLat) > 90 ||
-        Math.abs(oLng) > 180 ||
-        Math.abs(dLng) > 180
-      ) {
-        setLoading(false);
-        setRoutes([]);
-        setSelectedRouteIndex(0);
-        setError("Invalid pickup or destination coordinates");
-        return;
-      }
-
-      if (oLat === dLat && oLng === dLng) {
-        setLoading(false);
-        setRoutes([]);
-        setSelectedRouteIndex(0);
-        setError("Choose two different locations");
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError("");
-        setRoutes([]);
-        setSelectedRouteIndex(0);
-        const url =
-  `${OSRM_URL}/${originLng},${originLat};${destinationLng},${destinationLat}` +
-  `?alternatives=3&overview=full&geometries=geojson`;
-
-
-        
-
-        const response = await fetch(url, { signal: controller.signal });
-
-        if (!response.ok) {
-          throw new Error("OSRM server request failed");
-        }
-
-        const data = await response.json();
-
-        if (data.code !== "Ok" || !data.routes || data.routes.length === 0) {
-          throw new Error("No driving route found");
-        }
-
-        if (cancelled) return;
-
-        const availableRoutes = data.routes.map((item, index) => ({
-          id: index,
-          geometry: item.geometry,
-          distanceKm: (item.distance / 1000).toFixed(2),
-          durationMinutes: Math.round(item.duration / 60),
-      }));
-
-      setRoutes(availableRoutes);
-      setSelectedRouteIndex(0);
-
-      // Automatically select the first route
-      onRouteCalculated?.({
-        distanceKm: Number(availableRoutes[0].distanceKm),
-        durationMinutes: availableRoutes[0].durationMinutes,
+    // Save every point of the chosen route to the backend.
+    try {
+      setUploadPhase("saving");
+      await saveRouteToBackend({
+        origin: routeData.origin,
+        destination: routeData.destination,
+        distanceKm: savedRoute.distanceKm,
+        durationMinutes: savedRoute.durationMinutes,
+        suggestedPrice: Number(suggestedPrice),
+        points: savedRoute.routeCoordinates,
       });
-      } catch (err) {
-        if (err.name !== "AbortError" && !cancelled) {
-          console.error("OSRM error:", err);
-          setError(err.message || "Unable to calculate route");
-        }
-      } finally {
-        // Only the latest (non-cancelled) run controls the spinner.
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+      setUploadPhase("saved");
+    } catch (e) {
+      setUploadPhase("error");
+      return Alert.alert("Could not save route", e.message || "Please try again.");
     }
 
-    calculateRoute();
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [originLat, originLng, destinationLat, destinationLng]);
-
-  // Rebuild the HTML only when the route changes, so the WebView
-  // doesn't reload on unrelated parent re-renders.
-  
-const webViewSource = useMemo(() => {
-  if (!routes.length) return null;
-
-  return {
-    html: createRouteMapHtml(
-      routes,
-      selectedRouteIndex,
-      { latitude: originLat, longitude: originLng },
-      { latitude: destinationLat, longitude: destinationLng }
-    ),
-    baseUrl: WEBVIEW_BASE_URL,
-  };
-}, [
-  routes,
-  selectedRouteIndex,
-  originLat,
-  originLng,
-  destinationLat,
-  destinationLng,
-]);
-
-
-function handleWebViewMessage(event) {
-  try {
-    const message = JSON.parse(event.nativeEvent.data);
-
-    if (message.type === "routeSelected") {
-      const index = message.index;
-
-      if (index >= 0 && index < routes.length) {
-        setSelectedRouteIndex(index);
-
-        const selectedRoute = routes[index];
-
-        onRouteCalculated?.({
-          distanceKm: Number(selectedRoute.distanceKm),
-          durationMinutes: selectedRoute.durationMinutes,
-        });
-      }
-    }
-  } catch (error) {
-    console.error("Route selection error:", error);
+    router.push({
+      pathname: "/Rideinfoscreen",
+      params: {
+        route: JSON.stringify({ origin: routeData.origin, destination: routeData.destination }),
+        suggestedPrice,
+      },
+    });
   }
-}
 
+  // Real progress derived from actual state
+  const steps = useMemo(() => {
+    const routeDone = phase === "ready";
+    const priceDone = routeDone && !!suggestedPrice;
+    return [
+      {
+        label: phase === "error" ? "Route not found, try again" : "Finding best route",
+        status: routeDone ? "done" : phase === "error" ? "error" : "active",
+      },
+      {
+        label: "Calculating distance and price",
+        status: priceDone ? "done" : routeDone ? "active" : "pending",
+      },
+      {
+        label: `Saving route points${
+          routeData?.selectedRoute?.routeCoordinates
+            ? ` (${routeData.selectedRoute.routeCoordinates.length})`
+            : ""
+        }`,
+        status:
+          uploadPhase === "saved" ? "done"
+          : uploadPhase === "saving" ? "active"
+          : uploadPhase === "error" ? "error"
+          : "pending",
+      },
+    ];
+  }, [phase, suggestedPrice, uploadPhase, routeData]);
 
+  const busy = phase !== "ready" || uploadPhase === "saving";
 
   return (
-    <View style={styles.mapCard}>
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#5B4BDB" />
-          <Text style={styles.statusText}>Calculating road route...</Text>
-        </View>
-      ) : routes.length > 0 && webViewSource ? (
-        <>
-          <View style={styles.mapContainer}>
-    <WebView
-      style={styles.map}
-      originWhitelist={["*"]}
-      source={webViewSource}
-      javaScriptEnabled
-      domStorageEnabled
-      onMessage={handleWebViewMessage}
-    />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
 
-    <Pressable
-      style={styles.expandButton}
-      onPress={() => setMapExpanded(true)}
-    >
-      <Text style={styles.expandText}>⛶ Expand map</Text>
-    </Pressable>
-    </View>
-
-          <View style={styles.summary}>
-            <Text style={styles.routeTitle} numberOfLines={1}>
-              {origin} → {destination}
-            </Text>
-
-            <Text style={styles.routeSubtitle}>
-              {routes[selectedRouteIndex]?.distanceKm} km •{" "}
-              {routes[selectedRouteIndex]?.durationMinutes} min
-            </Text>
-          </View>
-        </>
-      ) : (
-        <View style={styles.center}>
-          <Text style={styles.errorText}>
-            {error || "Select pickup and destination"}
-          </Text>
-
-          <Text style={styles.hint}>
-            Your actual road route will appear here.
-          </Text>
-        </View>
-      )}
-    
-      <Modal
-        visible={mapExpanded}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setMapExpanded(false)}
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.fullScreenContainer}>
-          <StatusBar
-            backgroundColor="#FFFFFF"
-            barStyle="dark-content"
-          />
+        <Header onProfilePress={() => Alert.alert("Driver profile", "Profile options")} />
 
-          {webViewSource && (
-            <WebView
-              style={styles.fullScreenMap}
-              originWhitelist={["*"]}
-              source={webViewSource}
-              javaScriptEnabled
-              domStorageEnabled
-              onMessage={handleWebViewMessage}
-            />
-          )}
+        <Text style={styles.title}>Publish a ride</Text>
+        <Text style={styles.subtitle}>Choose your route</Text>
 
-          <Pressable
-            style={styles.closeMapButton}
-            onPress={() => setMapExpanded(false)}
-          >
-            <Text style={styles.closeMapText}>
-              ✕ Close map
-            </Text>
-          </Pressable>
+        <LocationCard
+          origin={origin}
+          setOrigin={(value) => {
+            setOrigin(value);
+            setOriginCoordinates(null);
+            resetRoute();
+          }}
+          destination={destination}
+          setDestination={(value) => {
+            setDestination(value);
+            setDestinationCoordinates(null);
+            resetRoute();
+          }}
+          onPickOrigin={() => openMapPicker("origin")}
+          onPickDestination={() => openMapPicker("destination")}
+          onSwap={swapLocations}
+        />
 
-          <View style={styles.fullScreenSummary}>
-            <Text style={styles.fullScreenTitle}>
-              {origin} → {destination}
-            </Text>
+        <RoutePreview
+          origin={origin}
+          destination={destination}
+          originCoordinates={originCoordinates}
+          destinationCoordinates={destinationCoordinates}
+          onRouteCalculated={handleRouteCalculated}
+        />
 
-            <Text style={styles.fullScreenSubtitle}>
-              {routes[selectedRouteIndex]?.distanceKm} km
-              {" • "}
-              {routes[selectedRouteIndex]?.durationMinutes} min
-            </Text>
-          </View>
-        </View>
-      </Modal>
+        <RouteProgress steps={steps} />
 
-    </View>
-    
-  
+        <Text style={styles.priceText}>
+          Suggested price: Rs. {suggestedPrice || "Calculating..."}
+        </Text>
+
+        <TouchableOpacity
+          style={[styles.nextButton, busy && { opacity: 0.5 }]}
+          onPress={handleNext}
+          disabled={busy}
+          accessibilityRole="button"
+        >
+          <Text style={styles.nextText}>
+            {uploadPhase === "saving" ? "Saving..." : "Continue"}
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  mapCard: {
-    height: 205,
-    marginBottom: 12,
-    borderRadius: 17,
-    overflow: "hidden",
-    backgroundColor: "#EAF2F8",
-  },
-
-  map: {
-    flex: 1,
-  },
-
-  center: {
-    flex: 1,
+  safeArea: { flex: 1, backgroundColor: COLORS.background },
+  content: { flexGrow: 1, paddingHorizontal: 18, paddingTop: 15, paddingBottom: 120 },
+  title: { fontSize: 25, fontWeight: "800", color: COLORS.secondary },
+  subtitle: { fontSize: 13, color: COLORS.muted, marginTop: 4, marginBottom: 19 },
+  priceText: { fontSize: 14, color: COLORS.secondary, fontWeight: "700", marginVertical: 10 },
+  nextButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 14,
+    paddingVertical: 15,
     alignItems: "center",
-    justifyContent: "center",
-    padding: 15,
+    marginTop: 8,
   },
-
-  statusText: {
-    marginTop: 10,
-    fontSize: 13,
-    color: "#555555",
-  },
-
-  errorText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#B00020",
-    textAlign: "center",
-  },
-
-  hint: {
-    marginTop: 6,
-    fontSize: 12,
-    color: "#777777",
-    textAlign: "center",
-  },
-
-  summary: {
-    position: "absolute",
-    bottom: 8,
-    left: 8,
-    right: 8,
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.96)",
-  },
-
-  routeTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#29243F",
-  },
-
-  routeSubtitle: {
-    marginTop: 3,
-    fontSize: 11,
-    color: "#5B4BDB",
-    fontWeight: "700",
-  },
-  mapContainer: {
-  flex: 1,
-  position: "relative",
-},
-
-expandButton: {
-  position: "absolute",
-  top: 10,
-  right: 10,
-  backgroundColor: "#FFFFFF",
-  paddingHorizontal: 12,
-  paddingVertical: 9,
-  borderRadius: 10,
-  elevation: 4,
-},
-
-expandText: {
-  color: "#29243F",
-  fontSize: 12,
-  fontWeight: "700",
-},
-
-fullScreenContainer: {
-  flex: 1,
-  backgroundColor: "#FFFFFF",
-},
-
-fullScreenMap: {
-  flex: 1,
-},
-
-closeMapButton: {
-  position: "absolute",
-  top: 45,
-  right: 18,
-  backgroundColor: "#FFFFFF",
-  paddingHorizontal: 16,
-  paddingVertical: 12,
-  borderRadius: 12,
-  elevation: 5,
-},
-
-closeMapText: {
-  color: "#29243F",
-  fontWeight: "800",
-  fontSize: 14,
-},
-
-fullScreenSummary: {
-  padding: 18,
-  backgroundColor: "#FFFFFF",
-  borderTopWidth: 1,
-  borderTopColor: "#EEEEEE",
-},
-
-fullScreenTitle: {
-  fontSize: 15,
-  fontWeight: "800",
-  color: "#29243F",
-},
-
-fullScreenSubtitle: {
-  marginTop: 6,
-  fontSize: 13,
-  fontWeight: "700",
-  color: "#5B4BDB",
-},
+  nextText: { color: "#FFFFFF", fontSize: 16, fontWeight: "bold" },
 });

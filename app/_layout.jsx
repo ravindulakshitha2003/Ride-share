@@ -2,9 +2,11 @@ import { StyleSheet, Text, View } from 'react-native'
 import React from 'react'
 import { Stack } from 'expo-router';
 import { AuthProvider } from '../context/authContext';
+import { RouteProvider } from "../context/RouteContext";
 const _layout = () => {
   return (
      <AuthProvider>
+      <RouteProvider>
     <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen  name='index' screenOptions={{
         headerStyle: {
@@ -19,6 +21,7 @@ const _layout = () => {
      <Stack.Screen  name='(dashbord)'  />
 
     </Stack >
+    </RouteProvider>
     </AuthProvider>
   )
 }
