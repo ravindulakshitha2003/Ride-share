@@ -22,10 +22,16 @@ import RideDetails from "../components/map/RideDetails";
 import PublishButton from "../components/map/PublishButton";
 import { useRoute } from "../context/RouteContext";
 
-// TODO: replace with your real endpoint
+// TODO: set your real endpoint, then switch SEND_TO_BACKEND to true
 const API_URL = "https://example.com";
+const SEND_TO_BACKEND = false; // false = only print the payload in the console
 
 async function publishRideToBackend(payload) {
+  if (!SEND_TO_BACKEND) {
+    console.log("📦 PAYLOAD (not sent):\n" + JSON.stringify(payload, null, 2));
+    return { status: "not sent" };
+  }
+
   const res = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -102,7 +108,7 @@ export default function PublishDetailsScreen() {
   async function handlePublish() {
     if (publishing) return;
 
-    if (!routeData?.routeHash) {
+    if (!routeData?.routeSignature) {
       return Alert.alert("Missing route", "Please go back and choose a route.");
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(departureDate) || !/^\d{2}:\d{2}$/.test(departureTime)) {
@@ -121,7 +127,7 @@ export default function PublishDetailsScreen() {
     }
 
     const rideData = {
-      routeHash: routeData.routeHash,
+      routeSignature: routeData.routeSignature,
       origin: routeData.origin,
       destination: routeData.destination,
       distanceKm: routeData.distanceKm,
@@ -138,12 +144,9 @@ export default function PublishDetailsScreen() {
       setPublishing(true);
       const result = await publishRideToBackend(rideData);
 
-      console.log(
-        `✅ Ride sent to backend successfully (status ${result.status}):\n` +
-          JSON.stringify(rideData, null, 2)
-      );
+      console.log(`🔏 routeSignature: ${rideData.routeSignature}`);
 
-      Alert.alert("Ride published!", "Your ride was saved successfully.", [
+      Alert.alert("Ride published!", "Payload printed in the console.", [
         {
           text: "OK",
           onPress: () => {
