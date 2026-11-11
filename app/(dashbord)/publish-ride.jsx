@@ -31,10 +31,12 @@ const INK = "#12263A";
 const MUTED = "#6B7B8C";
 const BG = "#F3F6F9";
 const LINE = "#E3E9EF";
-const BLUE = "#1F6FEB";
+const BLUE = "#5B4BDB";
 const GREEN = "#1F9D63";
 const RED = "#D64545";
 const ALT = "#9AA7B4";
+const MBLUE = "#1F6FEB";
+ 
 
 // ─────────────── Helpers ───────────────
 
@@ -397,7 +399,7 @@ export default function PublishRideScreen() {
                 <Polyline
                   key={`${r.index}-${isSelected}`}
                   coordinates={r.points}
-                  strokeColor={isSelected ? BLUE : ALT}
+                  strokeColor={isSelected ? MBLUE : ALT}
                   strokeWidth={isSelected ? 6 : 4}
                   tappable
                   onPress={() => setSelectedIndex(r.index)}
