@@ -73,19 +73,7 @@ export default function DashboardLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="OsrmRouteScreen"
-        options={{
-          title: "Explore",
-          tabBarIcon: ({ focused, color }) => (
-            <Ionicons
-              name={focused ? "compass" : "compass-outline"}
-              size={25}
-              color={color}
-            />
-          ),
-        }}
-      />
+      
       <Tabs.Screen
         name="RouteSelectScreen"
         options={{
