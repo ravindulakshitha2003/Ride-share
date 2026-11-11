@@ -1,0 +1,15 @@
+
+import { useContext } from "react";
+import { RouteContext } from "../context/RouteContext";
+
+export default function useRoute() {
+  const context = useContext(RouteContext);
+
+  if (!context) {
+    throw new Error(
+      "useRoute must be used inside RouteProvider"
+    );
+  }
+
+  return context;
+}
