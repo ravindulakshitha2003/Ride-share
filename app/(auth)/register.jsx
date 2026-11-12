@@ -10,6 +10,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -25,7 +26,10 @@ import { useRouter } from 'expo-router';
 import { colors } from '../../theme/colors';
 import useAuth from '../../hooks/useAuth';
 import { getErrorMessage } from '../../api/client';
-import { Field } from '../../components/Field';
+
+// ---------------------------------------------------------------------------
+// Date helpers
+// ---------------------------------------------------------------------------
 
 // Validate a YYYY-MM-DD date without accepting impossible dates.
 function parseDate(value) {
@@ -54,6 +58,16 @@ function toDateString(date) {
   return `${year}-${month}-${day}`;
 }
 
+// While typing, keep only digits and add the dashes automatically: 20000115 -> 2000-01-15.
+function formatDateInput(text) {
+  const digits = text.replace(/\D/g, '').slice(0, 8);
+
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+}
+
 // The latest allowed date of birth: exactly 18 years ago today.
 function adultCutoffDate() {
   const today = new Date();
@@ -65,24 +79,199 @@ function adultCutoffDate() {
   );
 }
 
-// The earliest date offered by the calendar.
-const MIN_DOB = new Date(1920, 0, 1);
+// Tomorrow at midnight: the earliest date offered for expiry dates.
+function tomorrowDate() {
+  const today = new Date();
 
-// While typing, keep only digits and add the dashes automatically: 20000115 -> 2000-01-15.
-function formatDobInput(text) {
-  const digits = text.replace(/\D/g, '').slice(0, 8);
-
-  if (digits.length <= 4) return digits;
-  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
-
-  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
 }
 
-// Reusable selectable options.
-function Chips({ label, options, value, onChange, error }) {
+// Thirty years from today: the latest date offered for expiry dates.
+function farFutureDate() {
+  const today = new Date();
+
+  return new Date(
+    today.getFullYear() + 30,
+    today.getMonth(),
+    today.getDate()
+  );
+}
+
+// The earliest date offered by the date of birth calendar.
+const MIN_DOB = new Date(1920, 0, 1);
+
+// ---------------------------------------------------------------------------
+// Reusable form pieces
+// ---------------------------------------------------------------------------
+
+// A text box with an icon on the left. Password boxes get a show/hide eye.
+function IconField({
+  label,
+  icon,
+  error,
+  secureTextEntry,
+  multiline,
+  ...inputProps
+}) {
+  const [focused, setFocused] = useState(false);
+  const [hidden, setHidden] = useState(true);
+  const isPassword = Boolean(secureTextEntry);
+
   return (
     <View>
       <Text style={styles.label}>{label}</Text>
+
+      <View
+        style={[
+          styles.fieldRow,
+          multiline && styles.fieldRowTop,
+          focused && styles.fieldFocused,
+          error && styles.fieldErrorBorder,
+        ]}
+      >
+        <Ionicons
+          name={icon}
+          size={20}
+          color={error ? colors.error : colors.primary}
+          style={[styles.fieldIcon, multiline && styles.fieldIconTop]}
+        />
+
+        <TextInput
+          style={[styles.fieldInput, multiline && styles.fieldInputMulti]}
+          placeholderTextColor="#9CA3AF"
+          secureTextEntry={isPassword && hidden}
+          multiline={multiline}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          {...inputProps}
+        />
+
+        {isPassword ? (
+          <TouchableOpacity
+            onPress={() => setHidden((current) => !current)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityLabel={hidden ? 'Show password' : 'Hide password'}
+          >
+            <Ionicons
+              name={hidden ? 'eye-outline' : 'eye-off-outline'}
+              size={20}
+              color="#6B7280"
+            />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+    </View>
+  );
+}
+
+// A date box: type the date (dashes are added for you) or tap the calendar button.
+function DateInputField({
+  label,
+  icon,
+  value,
+  onChangeText,
+  error,
+  minimumDate,
+  maximumDate,
+  initialDate,
+}) {
+  const [show, setShow] = useState(false);
+  const [focused, setFocused] = useState(false);
+
+  // Start the calendar on the typed date when it is valid and allowed.
+  const typed = parseDate(String(value ?? '').trim());
+  const inRange =
+    typed &&
+    (!minimumDate || typed >= minimumDate) &&
+    (!maximumDate || typed <= maximumDate);
+  const pickerValue = inRange
+    ? typed
+    : initialDate ?? maximumDate ?? minimumDate ?? new Date();
+
+  // Called when the user picks a date in the calendar.
+  function handlePicked(event, selected) {
+    // The calendar closes after any answer (OK or cancel).
+    setShow(false);
+
+    // Only keep the date if the user pressed OK.
+    if (event.type === 'set' && selected) {
+      onChangeText(toDateString(selected));
+    }
+  }
+
+  return (
+    <View>
+      <Text style={styles.label}>{label}</Text>
+
+      <View
+        style={[
+          styles.fieldRow,
+          focused && styles.fieldFocused,
+          error && styles.fieldErrorBorder,
+        ]}
+      >
+        <Ionicons
+          name={icon}
+          size={20}
+          color={error ? colors.error : colors.primary}
+          style={styles.fieldIcon}
+        />
+
+        <TextInput
+          style={styles.fieldInput}
+          value={value}
+          onChangeText={(text) => onChangeText(formatDateInput(text))}
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor="#9CA3AF"
+          keyboardType="number-pad"
+          maxLength={10}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+        />
+
+        <TouchableOpacity
+          style={styles.calendarButton}
+          onPress={() => setShow(true)}
+          activeOpacity={0.7}
+          accessibilityLabel={`Choose ${label} from the calendar`}
+        >
+          <Ionicons name="calendar" size={22} color={colors.primary} />
+        </TouchableOpacity>
+      </View>
+
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+
+      {show ? (
+        <DateTimePicker
+          value={pickerValue}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+          minimumDate={minimumDate}
+          maximumDate={maximumDate}
+          onChange={handlePicked}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+// A row of tap-to-select options, with an icon beside the label and optional icons on each option.
+function Chips({ label, icon, options, value, onChange, error }) {
+  return (
+    <View>
+      <View style={styles.chipLabelRow}>
+        {icon ? (
+          <Ionicons
+            name={icon}
+            size={18}
+            color={colors.primary}
+            style={styles.chipLabelIcon}
+          />
+        ) : null}
+        <Text style={styles.chipLabelText}>{label}</Text>
+      </View>
 
       <View style={styles.chipRow}>
         {options.map((option) => {
@@ -95,6 +284,15 @@ function Chips({ label, options, value, onChange, error }) {
               onPress={() => onChange(option.value)}
               activeOpacity={0.8}
             >
+              {option.icon ? (
+                <Ionicons
+                  name={option.icon}
+                  size={16}
+                  color={selected ? colors.white : colors.primary}
+                  style={styles.chipIcon}
+                />
+              ) : null}
+
               <Text
                 style={[styles.chipText, selected && styles.chipTextActive]}
               >
@@ -110,10 +308,31 @@ function Chips({ label, options, value, onChange, error }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Options and starting values
+// ---------------------------------------------------------------------------
+
 const GENDERS = [
-  { label: 'Male', value: 'Male' },
-  { label: 'Female', value: 'Female' },
-  { label: 'Prefer not to say', value: 'Prefer not to say' },
+  { label: 'Male', value: 'Male', icon: 'male-outline' },
+  { label: 'Female', value: 'Female', icon: 'female-outline' },
+  {
+    label: 'Prefer not to say',
+    value: 'Prefer not to say',
+    icon: 'help-circle-outline',
+  },
+];
+
+const VEHICLE_TYPES = [
+  { label: 'Car', value: 'Car', icon: 'car-outline' },
+  { label: 'Van', value: 'Van', icon: 'bus-outline' },
+  { label: 'SUV', value: 'SUV', icon: 'car-sport-outline' },
+  { label: 'Other', value: 'Other', icon: 'ellipsis-horizontal-circle-outline' },
+];
+
+const LUGGAGE_OPTIONS = [
+  { label: 'Available', value: 'available' },
+  { label: 'Limited', value: 'limited' },
+  { label: 'Unavailable', value: 'unavailable' },
 ];
 
 const EMPTY_FORM = {
@@ -124,39 +343,100 @@ const EMPTY_FORM = {
   confirmPassword: '',
   gender: '',
   dateOfBirth: '',
+
+  wantsToDrive: false,
+
+  nicNumber: '',
+  licenceNumber: '',
+  licenceClass: '',
+  licenceExpiry: '',
+  address: '',
+  emergencyName: '',
+  emergencyPhone: '+94',
+
+  vehicleType: '',
+  make: '',
+  model: '',
+  colour: '',
+  year: '',
+  plateNo: '',
+  seats: '',
+  hasAC: false,
+  luggage: '',
+  description: '',
+  crNumber: '',
+  revenueLicenceExpiry: '',
+  insuranceExpiry: '',
 };
 
-// Registration has two pages.
-const TOTAL_STEPS = 2;
+// The pages of the form. Passengers see the first two; drivers continue through the driver pages.
+const PASSENGER_STEPS = ['basic', 'more'];
+const DRIVER_STEPS = [
+  'licence',
+  'contact',
+  'vehicle',
+  'vehicleDetails',
+  'documents',
+];
 
-// Heading shown at the top of each step.
+// Heading shown at the top of each page.
 const STEP_INFO = {
-  1: {
+  basic: {
     title: 'Create your account',
     subtitle: "Let's start with the basics.",
   },
-  2: {
+  more: {
     title: 'A bit more about you',
     subtitle: 'Almost done. Just a few more details.',
   },
+  licence: {
+    title: 'Your driving licence',
+    subtitle: 'We need these details to verify that you can drive.',
+  },
+  contact: {
+    title: 'Address and emergency contact',
+    subtitle: 'Used for safety and verification only.',
+  },
+  vehicle: {
+    title: 'Your vehicle',
+    subtitle: 'Tell passengers what they will be travelling in.',
+  },
+  vehicleDetails: {
+    title: 'Vehicle details',
+    subtitle: 'Seats and facilities shown to passengers when they search.',
+  },
+  documents: {
+    title: 'Vehicle documents',
+    subtitle: 'An administrator reviews these before you can publish rides.',
+  },
 };
+
+// ---------------------------------------------------------------------------
+// The screen
+// ---------------------------------------------------------------------------
 
 export default function RegisterScreen() {
   const router = useRouter();
   const { register } = useAuth();
   const { width } = useWindowDimensions();
 
-  // Step 1 = basic details, step 2 = more details.
+  // The number of the page that is showing (1 = first page).
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);
-  // Whether the date of birth calendar is open.
-  const [showDobPicker, setShowDobPicker] = useState(false);
+  const [vehiclePhotoUri, setVehiclePhotoUri] = useState(null);
 
-  const isLastStep = step === TOTAL_STEPS;
+  // Passengers finish after two pages; drivers continue through five more short pages.
+  const steps = form.wantsToDrive
+    ? [...PASSENGER_STEPS, ...DRIVER_STEPS]
+    : PASSENGER_STEPS;
+  const totalSteps = steps.length;
+  // The name of the page that is showing, for example 'basic' or 'vehicle'.
+  const stepKey = steps[step - 1];
+  const isLastStep = step === totalSteps;
 
   // Animation: 0 = step is visible, -1 / 1 = off screen to the left / right.
   const anim = useRef(new Animated.Value(0)).current;
@@ -295,23 +575,65 @@ export default function RegisterScreen() {
     Alert.alert('Profile photo', 'Choose a clear photo of your face.', buttons);
   }
 
-  // Called when the user picks a date in the calendar.
-  function handleDobPicked(event, selected) {
-    // The calendar closes after any answer (OK or cancel).
-    setShowDobPicker(false);
+  // Select a vehicle photo from the camera or gallery.
+  async function pickVehiclePhoto(fromCamera) {
+    try {
+      if (fromCamera) {
+        const permission =
+          await ImagePicker.requestCameraPermissionsAsync();
 
-    // Only keep the date if the user pressed OK.
-    if (event.type === 'set' && selected) {
-      set('dateOfBirth')(toDateString(selected));
+        if (!permission.granted) {
+          setFormError('Camera permission is required to take a photo.');
+          return;
+        }
+      }
+
+      const options = {
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+      };
+
+      const result = fromCamera
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+
+      if (result.canceled || !result.assets?.length) return;
+
+      setVehiclePhotoUri(result.assets[0].uri);
+      setFormError('');
+      setErrors((current) => ({ ...current, vehiclePhoto: undefined }));
+    } catch (error) {
+      setFormError('Unable to open the photo picker. Please try again.');
     }
   }
 
-  // Validate only the fields that belong to one step.
-  function validateStep(stepNumber) {
-    const error = {};
+  function chooseVehiclePhotoSource() {
+    Alert.alert(
+      'Vehicle photo',
+      'Choose a clear photo showing the vehicle and its number plate.',
+      [
+        {
+          text: 'Take a photo',
+          onPress: () => pickVehiclePhoto(true),
+        },
+        {
+          text: 'Choose from gallery',
+          onPress: () => pickVehiclePhoto(false),
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  }
 
-    // ---- Step 1: basic details ----
-    if (stepNumber === 1) {
+  // Validate only the fields that belong to one page.
+  function validateStep(key) {
+    const error = {};
+    const today = new Date();
+
+    // ---- Basic details ----
+    if (key === 'basic') {
       if (!value('fullName')) {
         error.fullName = 'Full name is required.';
       }
@@ -335,8 +657,8 @@ export default function RegisterScreen() {
       }
     }
 
-    // ---- Step 2: more details ----
-    if (stepNumber === 2) {
+    // ---- More details ----
+    if (key === 'more') {
       if (!form.gender) {
         error.gender = 'Please choose an option.';
       }
@@ -356,6 +678,121 @@ export default function RegisterScreen() {
       }
     }
 
+    // ---- Driver page 1: identity and licence ----
+    if (key === 'licence') {
+      if (!/^(\d{9}[VvXx]|\d{12})$/.test(value('nicNumber'))) {
+        error.nicNumber = 'Enter 9 digits + V/X, or 12 digits.';
+      }
+
+      if (!value('licenceNumber')) {
+        error.licenceNumber = 'Licence number is required.';
+      }
+
+      if (!value('licenceClass')) {
+        error.licenceClass = 'Licence class is required.';
+      }
+
+      const licenceExpiry = parseDate(value('licenceExpiry'));
+
+      if (!licenceExpiry) {
+        error.licenceExpiry = 'Use a valid YYYY-MM-DD date.';
+      } else if (licenceExpiry <= today) {
+        error.licenceExpiry = 'This licence has expired.';
+      }
+    }
+
+    // ---- Driver page 2: address and emergency contact ----
+    if (key === 'contact') {
+      if (!value('address')) {
+        error.address = 'Address is required.';
+      }
+
+      if (!value('emergencyName')) {
+        error.emergencyName = 'Emergency contact name is required.';
+      }
+
+      if (!/^\+94\d{9}$/.test(value('emergencyPhone'))) {
+        error.emergencyPhone = 'Use the format +94771234567.';
+      }
+    }
+
+    // ---- Driver page 3: the vehicle ----
+    if (key === 'vehicle') {
+      if (!vehiclePhotoUri) {
+        error.vehiclePhoto = 'Please add a vehicle photo.';
+      }
+
+      if (!form.vehicleType) {
+        error.vehicleType = 'Please choose a vehicle type.';
+      }
+
+      if (!value('make')) {
+        error.make = 'Vehicle brand is required.';
+      }
+
+      if (!value('model')) {
+        error.model = 'Vehicle model is required.';
+      }
+
+      if (!value('colour')) {
+        error.colour = 'Vehicle colour is required.';
+      }
+    }
+
+    // ---- Driver page 4: vehicle details ----
+    if (key === 'vehicleDetails') {
+      const year = Number(value('year'));
+
+      if (
+        !Number.isInteger(year) ||
+        year < 1990 ||
+        year > today.getFullYear() + 1
+      ) {
+        error.year = 'Enter a valid vehicle year.';
+      }
+
+      if (!value('plateNo')) {
+        error.plateNo = 'Number plate is required.';
+      }
+
+      const seats = Number(value('seats'));
+
+      if (!Number.isInteger(seats) || seats < 1 || seats > 8) {
+        error.seats = 'Enter passenger seats from 1 to 8.';
+      }
+
+      if (!form.luggage) {
+        error.luggage = 'Please choose a luggage option.';
+      }
+    }
+
+    // ---- Driver page 5: description and documents ----
+    if (key === 'documents') {
+      if (!value('description')) {
+        error.description = 'Vehicle description is required.';
+      }
+
+      if (!value('crNumber')) {
+        error.crNumber = 'Registration (CR) number is required.';
+      }
+
+      const revenueExpiry = parseDate(value('revenueLicenceExpiry'));
+
+      if (!revenueExpiry) {
+        error.revenueLicenceExpiry = 'Use a valid YYYY-MM-DD date.';
+      } else if (revenueExpiry <= today) {
+        error.revenueLicenceExpiry = 'Revenue licence has expired.';
+      }
+
+      const insuranceExpiry = parseDate(value('insuranceExpiry'));
+
+      if (!insuranceExpiry) {
+        error.insuranceExpiry = 'Use a valid YYYY-MM-DD date.';
+      } else if (insuranceExpiry <= today) {
+        error.insuranceExpiry = 'Insurance has expired.';
+      }
+    }
+
     return error;
   }
 
@@ -368,7 +805,7 @@ export default function RegisterScreen() {
       return;
     }
 
-    const stepErrors = validateStep(step);
+    const stepErrors = validateStep(stepKey);
     setErrors(stepErrors);
 
     if (Object.keys(stepErrors).length > 0) {
@@ -387,8 +824,8 @@ export default function RegisterScreen() {
     setFormError('');
 
     // Check every step again; jump back to the first step with a problem.
-    for (let n = 1; n <= TOTAL_STEPS; n += 1) {
-      const stepErrors = validateStep(n);
+    for (let n = 1; n <= totalSteps; n += 1) {
+      const stepErrors = validateStep(steps[n - 1]);
 
       if (Object.keys(stepErrors).length > 0) {
         setErrors(stepErrors);
@@ -405,24 +842,58 @@ export default function RegisterScreen() {
       password: form.password,
       gender: form.gender,
       dateOfBirth: form.dateOfBirth.trim(),
+      wantsToDrive: form.wantsToDrive,
       photoUri,
     };
+
+    // Driver and vehicle details are sent only for people who registered as a driver.
+    if (form.wantsToDrive) {
+      payload.vehiclePhotoUri = vehiclePhotoUri;
+
+      payload.driver = {
+        nicNumber: form.nicNumber.trim().toUpperCase(),
+        licenceNumber: form.licenceNumber.trim(),
+        licenceClass: form.licenceClass.trim().toUpperCase(),
+        licenceExpiry: form.licenceExpiry.trim(),
+        address: form.address.trim(),
+        emergencyContact: {
+          name: form.emergencyName.trim(),
+          phone: form.emergencyPhone.trim(),
+        },
+      };
+
+      payload.vehicle = {
+        type: form.vehicleType,
+        make: form.make.trim(),
+        model: form.model.trim(),
+        colour: form.colour.trim(),
+        year: Number(form.year),
+        plateNo: form.plateNo.trim().toUpperCase(),
+        seats: Number(form.seats),
+        hasAC: form.hasAC,
+        luggage: form.luggage,
+        description: form.description.trim(),
+        crNumber: form.crNumber.trim(),
+        revenueLicenceExpiry: form.revenueLicenceExpiry.trim(),
+        insuranceExpiry: form.insuranceExpiry.trim(),
+      };
+    }
 
     setSubmitting(true);
 
     try {
       await register(payload);
 
-      Alert.alert(
-        'Account created',
-        'Your account has been created. You can log in now.',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.replace('/(auth)/login'),
-          },
-        ]
-      );
+      const message = form.wantsToDrive
+        ? 'Your driver application was submitted for review. You can log in now.'
+        : 'Your account has been created. You can log in now.';
+
+      Alert.alert('Account created', message, [
+        {
+          text: 'OK',
+          onPress: () => router.replace('/(auth)/login'),
+        },
+      ]);
     } catch (error) {
       setFormError(getErrorMessage(error));
     } finally {
@@ -434,8 +905,9 @@ export default function RegisterScreen() {
   function renderBasicStep() {
     return (
       <View>
-        <Field
+        <IconField
           label="Full name"
+          icon="person-outline"
           value={form.fullName}
           onChangeText={set('fullName')}
           error={errors.fullName}
@@ -443,8 +915,9 @@ export default function RegisterScreen() {
           placeholder="Nimal Perera"
         />
 
-        <Field
+        <IconField
           label="Mobile number"
+          icon="call-outline"
           value={form.mobile}
           onChangeText={set('mobile')}
           error={errors.mobile}
@@ -452,8 +925,9 @@ export default function RegisterScreen() {
           placeholder="+94771234567"
         />
 
-        <Field
+        <IconField
           label="Email"
+          icon="mail-outline"
           value={form.email}
           onChangeText={set('email')}
           error={errors.email}
@@ -463,8 +937,9 @@ export default function RegisterScreen() {
           placeholder="you@example.com"
         />
 
-        <Field
+        <IconField
           label="Password"
+          icon="lock-closed-outline"
           value={form.password}
           onChangeText={set('password')}
           error={errors.password}
@@ -473,8 +948,9 @@ export default function RegisterScreen() {
           placeholder="At least 8 characters"
         />
 
-        <Field
+        <IconField
           label="Confirm password"
+          icon="shield-checkmark-outline"
           value={form.confirmPassword}
           onChangeText={set('confirmPassword')}
           error={errors.confirmPassword}
@@ -488,12 +964,6 @@ export default function RegisterScreen() {
 
   // ---------- Step 2: more details ----------
   function renderMoreStep() {
-    // Start the calendar on the typed date when it is valid, otherwise on the latest allowed date.
-    const cutoff = adultCutoffDate();
-    const typed = parseDate(value('dateOfBirth'));
-    const pickerValue =
-      typed && typed <= cutoff && typed >= MIN_DOB ? typed : cutoff;
-
     return (
       <View>
         {/* Profile photo */}
@@ -505,7 +975,7 @@ export default function RegisterScreen() {
               {photoUri ? (
                 <Image source={{ uri: photoUri }} style={styles.photoImage} />
               ) : (
-                <Text style={styles.photoPlus}>+</Text>
+                <Ionicons name="camera-outline" size={38} color={colors.primary} />
               )}
             </View>
           </TouchableOpacity>
@@ -525,61 +995,350 @@ export default function RegisterScreen() {
 
         <Chips
           label="Gender"
+          icon="people-outline"
           options={GENDERS}
           value={form.gender}
           onChange={set('gender')}
           error={errors.gender}
         />
 
-        {/* Date of birth: type it, or tap the calendar icon */}
-        <Text style={styles.label}>Date of birth</Text>
-
-        <View
-          style={[styles.dobRow, errors.dateOfBirth && styles.inputError]}
-        >
-          <TextInput
-            style={styles.dobInput}
-            value={form.dateOfBirth}
-            onChangeText={(text) => set('dateOfBirth')(formatDobInput(text))}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor="#9CA3AF"
-            keyboardType="number-pad"
-            maxLength={10}
-          />
-
-          <TouchableOpacity
-            style={styles.calendarButton}
-            onPress={() => setShowDobPicker(true)}
-            activeOpacity={0.7}
-            accessibilityLabel="Choose date of birth from the calendar"
-          >
-            <Ionicons
-              name="calendar-outline"
-              size={22}
-              color={colors.primary}
-            />
-          </TouchableOpacity>
-        </View>
+        <DateInputField
+          label="Date of birth"
+          icon="gift-outline"
+          value={form.dateOfBirth}
+          onChangeText={set('dateOfBirth')}
+          error={errors.dateOfBirth}
+          minimumDate={MIN_DOB}
+          maximumDate={adultCutoffDate()}
+          initialDate={adultCutoffDate()}
+        />
 
         <Text style={styles.photoHint}>
           Type the date, or tap the calendar to choose it.
         </Text>
 
-        {errors.dateOfBirth ? (
-          <Text style={styles.fieldError}>{errors.dateOfBirth}</Text>
+        {/* Choice: register as a driver too (adds a third page) */}
+        <View style={styles.driverCard}>
+          <View style={styles.driverIcon}>
+            <Ionicons
+              name="car-sport-outline"
+              size={22}
+              color={colors.primary}
+            />
+          </View>
+
+          <View style={styles.switchContent}>
+            <Text style={styles.switchTitle}>Register as a driver</Text>
+            <Text style={styles.switchHint}>
+              Optional. Add your licence and vehicle details over a few short pages.
+              An administrator reviews them before you can publish rides. Not
+              a driver? Just tap Create account.
+            </Text>
+          </View>
+
+          <Switch
+            value={form.wantsToDrive}
+            onValueChange={set('wantsToDrive')}
+            trackColor={{ true: colors.primary }}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  // ---------- Driver page 1: identity and licence ----------
+  function renderLicenceStep() {
+    return (
+      <View>
+        <IconField
+          label="NIC number"
+          icon="card-outline"
+          value={form.nicNumber}
+          onChangeText={set('nicNumber')}
+          error={errors.nicNumber}
+          autoCapitalize="characters"
+          placeholder="199012345678 or 901234567V"
+        />
+
+        <IconField
+          label="Driving licence number"
+          icon="document-text-outline"
+          value={form.licenceNumber}
+          onChangeText={set('licenceNumber')}
+          error={errors.licenceNumber}
+          autoCapitalize="characters"
+          placeholder="B1234567"
+        />
+
+        <IconField
+          label="Licence class"
+          icon="ribbon-outline"
+          value={form.licenceClass}
+          onChangeText={set('licenceClass')}
+          error={errors.licenceClass}
+          autoCapitalize="characters"
+          placeholder="B"
+        />
+
+        <DateInputField
+          label="Licence expiry date"
+          icon="calendar-outline"
+          value={form.licenceExpiry}
+          onChangeText={set('licenceExpiry')}
+          error={errors.licenceExpiry}
+          minimumDate={tomorrowDate()}
+          maximumDate={farFutureDate()}
+        />
+
+        <Text style={styles.photoHint}>
+          Type the date, or tap the calendar to choose it.
+        </Text>
+      </View>
+    );
+  }
+
+  // ---------- Driver page 2: address and emergency contact ----------
+  function renderContactStep() {
+    return (
+      <View>
+        <IconField
+          label="Address"
+          icon="home-outline"
+          value={form.address}
+          onChangeText={set('address')}
+          error={errors.address}
+          autoCapitalize="words"
+          placeholder="No. 12, Main Street, Matara"
+        />
+
+        <IconField
+          label="Emergency contact name"
+          icon="person-add-outline"
+          value={form.emergencyName}
+          onChangeText={set('emergencyName')}
+          error={errors.emergencyName}
+          autoCapitalize="words"
+          placeholder="Contact person"
+        />
+
+        <IconField
+          label="Emergency contact phone"
+          icon="call-outline"
+          value={form.emergencyPhone}
+          onChangeText={set('emergencyPhone')}
+          error={errors.emergencyPhone}
+          keyboardType="phone-pad"
+          placeholder="+94771234567"
+        />
+      </View>
+    );
+  }
+
+  // ---------- Driver page 3: the vehicle ----------
+  function renderVehicleStep() {
+    return (
+      <View>
+        {/* Vehicle photo */}
+        <View style={styles.chipLabelRow}>
+          <Ionicons
+            name="camera-outline"
+            size={18}
+            color={colors.primary}
+            style={styles.chipLabelIcon}
+          />
+          <Text style={styles.chipLabelText}>Vehicle photo</Text>
+        </View>
+
+        <TouchableOpacity
+          onPress={chooseVehiclePhotoSource}
+          activeOpacity={0.8}
+        >
+          <View
+            style={[
+              styles.vehiclePhotoBox,
+              errors.vehiclePhoto && styles.inputError,
+            ]}
+          >
+            {vehiclePhotoUri ? (
+              <Image
+                source={{ uri: vehiclePhotoUri }}
+                style={styles.vehiclePhotoImage}
+              />
+            ) : (
+              <View style={styles.vehiclePhotoEmpty}>
+                <Ionicons
+                  name="camera-outline"
+                  size={32}
+                  color={colors.primary}
+                />
+                <Text style={styles.vehiclePhotoPrompt}>Add vehicle photo</Text>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        <Text style={styles.photoHint}>
+          {vehiclePhotoUri
+            ? 'Tap to change the photo.'
+            : 'Required. Show the vehicle and its number plate.'}
+        </Text>
+
+        {errors.vehiclePhoto ? (
+          <Text style={styles.fieldError}>{errors.vehiclePhoto}</Text>
         ) : null}
 
-        {/* Calendar pop-up: only dates that make the user 18 or older can be chosen */}
-        {showDobPicker ? (
-          <DateTimePicker
-            value={pickerValue}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'inline' : 'default'}
-            maximumDate={cutoff}
-            minimumDate={MIN_DOB}
-            onChange={handleDobPicked}
+        <Chips
+          label="Vehicle type"
+          icon="car-sport-outline"
+          options={VEHICLE_TYPES}
+          value={form.vehicleType}
+          onChange={set('vehicleType')}
+          error={errors.vehicleType}
+        />
+
+        <IconField
+          label="Brand"
+          icon="car-outline"
+          value={form.make}
+          onChangeText={set('make')}
+          error={errors.make}
+          autoCapitalize="words"
+          placeholder="Toyota"
+        />
+
+        <IconField
+          label="Model"
+          icon="pricetag-outline"
+          value={form.model}
+          onChangeText={set('model')}
+          error={errors.model}
+          autoCapitalize="words"
+          placeholder="Prius"
+        />
+
+        <IconField
+          label="Colour"
+          icon="color-palette-outline"
+          value={form.colour}
+          onChangeText={set('colour')}
+          error={errors.colour}
+          autoCapitalize="words"
+          placeholder="White"
+        />
+      </View>
+    );
+  }
+
+  // ---------- Driver page 4: vehicle details ----------
+  function renderVehicleDetailsStep() {
+    return (
+      <View>
+        <IconField
+          label="Year"
+          icon="calendar-outline"
+          value={form.year}
+          onChangeText={set('year')}
+          error={errors.year}
+          keyboardType="number-pad"
+          maxLength={4}
+          placeholder="2018"
+        />
+
+        <IconField
+          label="Number plate"
+          icon="barcode-outline"
+          value={form.plateNo}
+          onChangeText={set('plateNo')}
+          error={errors.plateNo}
+          autoCapitalize="characters"
+          placeholder="CAB-1234"
+        />
+
+        <IconField
+          label="Passenger seats (excluding driver)"
+          icon="people-outline"
+          value={form.seats}
+          onChangeText={set('seats')}
+          error={errors.seats}
+          keyboardType="number-pad"
+          maxLength={1}
+          placeholder="3"
+        />
+
+        <View style={styles.switchRow}>
+          <View style={styles.switchLabelRow}>
+            <Ionicons
+              name="snow-outline"
+              size={20}
+              color={colors.primary}
+              style={styles.fieldIcon}
+            />
+            <Text style={styles.switchTitle}>Air conditioning</Text>
+          </View>
+
+          <Switch
+            value={form.hasAC}
+            onValueChange={set('hasAC')}
+            trackColor={{ true: colors.primary }}
           />
-        ) : null}
+        </View>
+
+        <Chips
+          label="Luggage space"
+          icon="bag-handle-outline"
+          options={LUGGAGE_OPTIONS}
+          value={form.luggage}
+          onChange={set('luggage')}
+          error={errors.luggage}
+        />
+      </View>
+    );
+  }
+
+  // ---------- Driver page 5: description and documents ----------
+  function renderDocumentsStep() {
+    return (
+      <View>
+        <IconField
+          label="Vehicle description"
+          icon="chatbubble-ellipses-outline"
+          value={form.description}
+          onChangeText={set('description')}
+          error={errors.description}
+          multiline
+          autoCapitalize="sentences"
+          placeholder="Clean, comfortable, non-smoking..."
+        />
+
+        <IconField
+          label="Registration (CR) number"
+          icon="document-attach-outline"
+          value={form.crNumber}
+          onChangeText={set('crNumber')}
+          error={errors.crNumber}
+          autoCapitalize="characters"
+          placeholder="Certificate of registration number"
+        />
+
+        <DateInputField
+          label="Revenue licence expiry"
+          icon="receipt-outline"
+          value={form.revenueLicenceExpiry}
+          onChangeText={set('revenueLicenceExpiry')}
+          error={errors.revenueLicenceExpiry}
+          minimumDate={tomorrowDate()}
+          maximumDate={farFutureDate()}
+        />
+
+        <DateInputField
+          label="Insurance expiry"
+          icon="shield-checkmark-outline"
+          value={form.insuranceExpiry}
+          onChangeText={set('insuranceExpiry')}
+          error={errors.insuranceExpiry}
+          minimumDate={tomorrowDate()}
+          maximumDate={farFutureDate()}
+        />
       </View>
     );
   }
@@ -598,7 +1357,7 @@ export default function RegisterScreen() {
         >
           {/* Progress: one bar segment per step */}
           <View style={styles.progressRow}>
-            {Array.from({ length: TOTAL_STEPS }, (_, index) => (
+            {Array.from({ length: totalSteps }, (_, index) => (
               <View
                 key={index}
                 style={[
@@ -610,20 +1369,26 @@ export default function RegisterScreen() {
           </View>
 
           <Text style={styles.stepText}>
-            Step {step} of {TOTAL_STEPS}
+            {step > PASSENGER_STEPS.length ? 'Driver details  ·  ' : ''}
+            Step {step} of {totalSteps}
           </Text>
 
           {/* Everything below slides and fades when the step changes */}
           <Animated.View style={{ opacity, transform: [{ translateX }] }}>
-            <Text style={styles.title}>{STEP_INFO[step].title}</Text>
-            <Text style={styles.subtitle}>{STEP_INFO[step].subtitle}</Text>
+            <Text style={styles.title}>{STEP_INFO[stepKey].title}</Text>
+            <Text style={styles.subtitle}>{STEP_INFO[stepKey].subtitle}</Text>
 
             {formError ? (
               <Text style={styles.apiError}>{formError}</Text>
             ) : null}
 
-            {step === 1 ? renderBasicStep() : null}
-            {step === 2 ? renderMoreStep() : null}
+            {stepKey === 'basic' ? renderBasicStep() : null}
+            {stepKey === 'more' ? renderMoreStep() : null}
+            {stepKey === 'licence' ? renderLicenceStep() : null}
+            {stepKey === 'contact' ? renderContactStep() : null}
+            {stepKey === 'vehicle' ? renderVehicleStep() : null}
+            {stepKey === 'vehicleDetails' ? renderVehicleDetailsStep() : null}
+            {stepKey === 'documents' ? renderDocumentsStep() : null}
 
             {/* Back and Next / Create account buttons */}
             <View style={styles.navRow}>
@@ -753,6 +1518,73 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
+  // ---- Fields with icons ----
+  fieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+
+  fieldRowTop: {
+    alignItems: 'flex-start',
+  },
+
+  fieldFocused: {
+    borderColor: colors.primary,
+  },
+
+  fieldErrorBorder: {
+    borderColor: colors.error,
+  },
+
+  fieldIcon: {
+    marginRight: 10,
+  },
+
+  fieldIconTop: {
+    marginTop: 14,
+  },
+
+  fieldInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: colors.text,
+  },
+
+  fieldInputMulti: {
+    minHeight: 90,
+    textAlignVertical: 'top',
+  },
+
+  calendarButton: {
+    paddingLeft: 12,
+    paddingVertical: 12,
+    marginLeft: 4,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+  },
+
+  // ---- Section headings ----
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 24,
+    marginBottom: 4,
+  },
+
+  section: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginLeft: 8,
+  },
+
+  // ---- Photos ----
   photoWrap: {
     alignItems: 'center',
     marginVertical: 12,
@@ -775,11 +1607,6 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
-  photoPlus: {
-    fontSize: 40,
-    color: colors.primary,
-  },
-
   photoLabel: {
     color: colors.primary,
     fontWeight: 'bold',
@@ -793,28 +1620,51 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  dobRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  vehiclePhotoBox: {
+    width: '100%',
+    aspectRatio: 4 / 3,
     backgroundColor: colors.white,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: 4,
   },
 
-  dobInput: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  vehiclePhotoImage: {
+    width: '100%',
+    height: '100%',
+  },
+
+  vehiclePhotoEmpty: {
+    alignItems: 'center',
+  },
+
+  vehiclePhotoPrompt: {
+    color: colors.primary,
+    fontWeight: 'bold',
     fontSize: 16,
-    color: colors.text,
+    marginTop: 6,
   },
 
-  calendarButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderLeftWidth: 1,
-    borderLeftColor: colors.border,
+  // ---- Chips ----
+  chipLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+
+  chipLabelIcon: {
+    marginRight: 6,
+  },
+
+  chipLabelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
   },
 
   chipRow: {
@@ -823,6 +1673,8 @@ const styles = StyleSheet.create({
   },
 
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
@@ -838,6 +1690,10 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
 
+  chipIcon: {
+    marginRight: 6,
+  },
+
   chipText: {
     color: colors.text,
   },
@@ -847,6 +1703,61 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
+  // ---- Switches ----
+  driverCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 24,
+    gap: 12,
+  },
+
+  driverIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#EEEBFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    gap: 12,
+  },
+
+  switchLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+
+  switchContent: {
+    flex: 1,
+  },
+
+  switchTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+
+  switchHint: {
+    fontSize: 12,
+    color: colors.text,
+    opacity: 0.75,
+    marginTop: 4,
+    lineHeight: 17,
+  },
+
+  // ---- Navigation buttons ----
   navRow: {
     flexDirection: 'row',
     alignItems: 'center',
