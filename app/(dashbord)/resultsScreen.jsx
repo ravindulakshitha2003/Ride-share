@@ -1,3 +1,4 @@
+
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,24 +10,35 @@ import {
   Platform,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
-import { searchRides } from '../../api/rides';
-import { friendlyDate } from '../../utils/date';
-
-import { SafeAreaView } from "react-native-safe-area-context";
+import PlaceInput from '../../components/map/PlaceInput';
+import { setMapPickerSelectionHandler } from '../../context/mapNavigation';
 
 /* =======================================================
-   LOCAL DESIGN TOKENS (formerly theme/appTokens.js)
+   BACKEND CONFIG
 ======================================================= */
 
-// Shared design tokens (same look as the Add Vehicle and Profile pages).
-// Import these in every new page instead of hard-coding values.
+const API_BASE = 'http://192.168.8.159:5002';
+const SEARCH_URL = `${API_BASE}/api/v1/route-matching/search`;
+const TIMEOUT_MS = 15000;
+
+const MAX_PICKUP_DISTANCE_M = 5000;
+
+const DEFAULT_MAP_CENTER = {
+  latitude: 6.9271,
+  longitude: 79.8612,
+};
+
+/* =======================================================
+   DESIGN TOKENS
+======================================================= */
 
 const C = {
   primary: '#5B4BDB',
@@ -76,12 +88,10 @@ const SHADOW = Platform.select({
   default: {},
 });
 
-
 /* =======================================================
-   PRESS ANIMATION (formerly components/PressScale.jsx)
+   PRESS ANIMATION
 ======================================================= */
 
-// Wrap any button or card. It shrinks slightly while pressed, then springs back.
 function PressScale({
   onPress,
   disabled,
@@ -119,15 +129,9 @@ function PressScale({
   );
 }
 
-
 /* =======================================================
-   RIDE CARD (formerly components/RouteCard.jsx)
+   HELPERS
 ======================================================= */
-
-
-/* -------------------------------------------------------------------------- */
-/*  Helpers (also used by the results screen filters)                         */
-/* -------------------------------------------------------------------------- */
 
 const VEHICLE_ICONS = {
   Car: 'car',
@@ -159,23 +163,280 @@ function formatPrice(amount) {
 function formatDuration(minutes) {
   const total = Number(minutes);
 
-  if (!total || total < 1) {
-    return '';
-  }
+  if (!total || total < 1) return '';
 
   const h = Math.floor(total / 60);
   const m = total % 60;
 
-  if (h === 0) {
-    return `${m}m`;
-  }
+  if (h === 0) return `${m}m`;
 
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Small pieces                                                              */
-/* -------------------------------------------------------------------------- */
+function formatDistance(meters) {
+  const m = Number(meters);
+
+  if (!Number.isFinite(m)) return '';
+  if (m < 1000) return `${Math.round(m)} m`;
+
+  return `${(m / 1000).toFixed(1)} km`;
+}
+
+function pad(n) {
+  return String(n).padStart(2, '0');
+}
+
+function formatTime(date) {
+  let h = date.getHours();
+  const m = date.getMinutes();
+  const suffix = h >= 12 ? 'PM' : 'AM';
+
+  h = h % 12 || 12;
+
+  return `${pad(h)}:${pad(m)} ${suffix}`;
+}
+
+function tomorrowISO() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Create a date using local calendar values.
+// Avoid toISOString() because it converts the date to UTC.
+function parseLocalDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(year, month - 1, day);
+
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function isValidDate(value) {
+  return parseLocalDate(value) !== null;
+}
+
+function getTodayLocalDate() {
+  const today = new Date();
+
+  today.setHours(0, 0, 0, 0);
+
+  return today;
+}
+
+function isPastDate(value) {
+  const selected = parseLocalDate(value);
+
+  if (!selected) return false;
+
+  return selected < getTodayLocalDate();
+}
+
+function formatDateForBackend(date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}`;
+}
+
+function hashString(value) {
+  let h = 0;
+
+  for (let i = 0; i < value.length; i += 1) {
+    h = (h * 31 + value.charCodeAt(i)) >>> 0;
+  }
+
+  return h;
+}
+
+/* =======================================================
+   MOCK DRIVER PROFILES
+======================================================= */
+
+const MOCK_DRIVERS = [
+  {
+    vehicleType: 'Car',
+    driver: {
+      name: 'Kasun Perera',
+      photoUrl: 'https://i.pravatar.cc/150?img=12',
+      verified: true,
+      rating: 4.8,
+      ridesCount: 42,
+      vehicle: 'Toyota Axio',
+      hasAC: true,
+    },
+  },
+  {
+    vehicleType: 'Van',
+    driver: {
+      name: 'Nimal Fernando',
+      photoUrl: 'https://i.pravatar.cc/150?img=33',
+      verified: true,
+      rating: 4.6,
+      ridesCount: 128,
+      vehicle: 'Toyota HiAce',
+      hasAC: true,
+    },
+  },
+  {
+    vehicleType: 'SUV',
+    driver: {
+      name: 'Dilani Silva',
+      photoUrl: 'https://i.pravatar.cc/150?img=47',
+      verified: true,
+      rating: 4.9,
+      ridesCount: 87,
+      vehicle: 'Mitsubishi Montero',
+      hasAC: true,
+    },
+  },
+  {
+    vehicleType: 'Car',
+    driver: {
+      name: 'Sampath Jayasinghe',
+      photoUrl: 'https://i.pravatar.cc/150?img=15',
+      verified: false,
+      rating: 4.2,
+      ridesCount: 14,
+      vehicle: 'Suzuki Alto',
+      hasAC: false,
+    },
+  },
+  {
+    vehicleType: 'Van',
+    driver: {
+      name: 'Ruwan Bandara',
+      photoUrl: 'https://i.pravatar.cc/150?img=60',
+      verified: true,
+      rating: 4.4,
+      ridesCount: 63,
+      vehicle: 'Nissan Caravan',
+      hasAC: false,
+    },
+  },
+];
+
+/* =======================================================
+   BACKEND CALL + MAPPING
+======================================================= */
+
+async function searchRidesFromBackend({
+  pickup,
+  dropoff,
+  date,
+  passengers,
+}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    const res = await fetch(SEARCH_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        pickup: {
+          latitude: pickup.latitude,
+          longitude: pickup.longitude,
+        },
+        dropoff: {
+          latitude: dropoff.latitude,
+          longitude: dropoff.longitude,
+        },
+        departureDate: date,
+        seats: passengers,
+        maxDistanceMeters: MAX_PICKUP_DISTANCE_M,
+      }),
+      signal: controller.signal,
+    });
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(json?.message || `Server error ${res.status}`);
+    }
+
+    if (!Array.isArray(json?.data)) {
+      throw new Error('Invalid ride list received from server.');
+    }
+
+    return json.data;
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error(
+        'The request timed out. Check your connection and try again.'
+      );
+    }
+
+    if (e.message === 'Network request failed') {
+      throw new Error(
+        'Cannot reach the server. Check your Wi-Fi and that the backend is running.'
+      );
+    }
+
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function mapBackendRide(row, date) {
+  const profile =
+    MOCK_DRIVERS[
+      hashString(String(row.route_id)) % MOCK_DRIVERS.length
+    ];
+
+  const departure = new Date(row.departure_at);
+
+  const durationMin = Math.round(
+    Number(row.full_route_duration_seconds) / 60
+  );
+
+  const arrival = new Date(
+    departure.getTime() + durationMin * 60000
+  );
+
+  return {
+    id: row.route_id,
+    date,
+    from: row.origin_name,
+    to: row.destination_name,
+    departureTime: formatTime(departure),
+    arrivalTime: formatTime(arrival),
+    durationMin,
+    pricePerSeat: Number(row.price_per_seat),
+    currency: row.currency,
+    seatsFree: Number(row.available_seats),
+
+    vehicleType: profile.vehicleType,
+    driver: { ...profile.driver },
+
+    driverId: row.driver_id,
+    vehicleId: row.vehicle_id,
+    pickupDistanceMeters: Number(row.pickup_distance_meters),
+    dropoffDistanceMeters: Number(row.dropoff_distance_meters),
+    rideDistanceMeters: Number(row.ride_distance_meters),
+    suggestedPickup: row.suggested_pickup,
+    suggestedDropoff: row.suggested_dropoff,
+    matchedRouteSegment: row.matched_route_segment,
+  };
+}
+
+/* =======================================================
+   RIDE CARD
+======================================================= */
 
 function Avatar({ name, uri, verified }) {
   const [failed, setFailed] = useState(false);
@@ -217,16 +478,15 @@ function InfoPill({ icon, label, tone = 'violet' }) {
   return (
     <View style={[cardStyles.pill, { backgroundColor: colors.bg }]}>
       <Icon name={icon} size={15} color={colors.fg} />
-      <Text style={[cardStyles.pillText, { color: colors.fg }]} numberOfLines={1}>
+      <Text
+        style={[cardStyles.pillText, { color: colors.fg }]}
+        numberOfLines={1}
+      >
         {label}
       </Text>
     </View>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Route card                                                                */
-/* -------------------------------------------------------------------------- */
 
 function RouteCard({ ride, onPress }) {
   const driver = ride.driver || {};
@@ -235,6 +495,7 @@ function RouteCard({ ride, onPress }) {
   const duration = formatDuration(ride.durationMin);
   const seats = Number(ride.seatsFree);
   const rating = Number(driver.rating);
+  const pickupAway = formatDistance(ride.pickupDistanceMeters);
 
   const vehicleLabel = driver.vehicle
     ? `${driver.vehicle}`
@@ -250,7 +511,6 @@ function RouteCard({ ride, onPress }) {
       label={accessibilityLabel}
       style={cardStyles.card}
     >
-      {/* Driver + price */}
       <View style={cardStyles.topRow}>
         <Avatar
           name={driver.name}
@@ -266,30 +526,35 @@ function RouteCard({ ride, onPress }) {
           <View style={cardStyles.ratingRow}>
             <Icon name="star" size={15} color={C.star} />
             <Text style={cardStyles.ratingText}>
-              {Number.isFinite(rating) && rating > 0 ? rating.toFixed(1) : 'New'}
+              {Number.isFinite(rating) && rating > 0
+                ? rating.toFixed(1)
+                : 'New'}
             </Text>
+
             {driver.ridesCount ? (
               <Text style={cardStyles.ridesCount}>
-                {' '}
-                · {driver.ridesCount} rides
+                {' '}· {driver.ridesCount} rides
               </Text>
             ) : null}
           </View>
         </View>
 
         <View style={cardStyles.priceBox}>
-          <Text style={cardStyles.price}>{formatPrice(ride.pricePerSeat)}</Text>
+          <Text style={cardStyles.price}>
+            {formatPrice(ride.pricePerSeat)}
+          </Text>
           <Text style={cardStyles.perSeat}>per seat</Text>
         </View>
       </View>
 
-      {/* Route timeline */}
       <View style={cardStyles.timeline}>
         <View style={cardStyles.stop}>
           <Text style={cardStyles.time}>{ride.departureTime}</Text>
+
           <View style={cardStyles.dotCol}>
             <View style={cardStyles.dotFrom} />
           </View>
+
           <Text style={cardStyles.place} numberOfLines={1}>
             {ride.from}
           </Text>
@@ -297,13 +562,21 @@ function RouteCard({ ride, onPress }) {
 
         <View style={cardStyles.stop}>
           <View style={cardStyles.timeSpacer} />
+
           <View style={cardStyles.dotCol}>
             <View style={cardStyles.line} />
           </View>
+
           {duration ? (
             <View style={cardStyles.durationChip}>
-              <Icon name="clock-outline" size={13} color={C.textMuted} />
-              <Text style={cardStyles.durationText}>{duration}</Text>
+              <Icon
+                name="clock-outline"
+                size={13}
+                color={C.textMuted}
+              />
+              <Text style={cardStyles.durationText}>
+                {duration}
+              </Text>
             </View>
           ) : (
             <View style={cardStyles.durationSpacer} />
@@ -312,9 +585,15 @@ function RouteCard({ ride, onPress }) {
 
         <View style={cardStyles.stop}>
           <Text style={cardStyles.time}>{ride.arrivalTime}</Text>
+
           <View style={cardStyles.dotCol}>
-            <Icon name="map-marker" size={20} color={C.primary} />
+            <Icon
+              name="map-marker"
+              size={20}
+              color={C.primary}
+            />
           </View>
+
           <Text style={cardStyles.place} numberOfLines={1}>
             {ride.to}
           </Text>
@@ -323,9 +602,11 @@ function RouteCard({ ride, onPress }) {
 
       <View style={cardStyles.divider} />
 
-      {/* Feature pills */}
       <View style={cardStyles.pillRow}>
-        <InfoPill icon={VEHICLE_ICONS[vehicleType]} label={vehicleLabel} />
+        <InfoPill
+          icon={VEHICLE_ICONS[vehicleType]}
+          label={vehicleLabel}
+        />
 
         <InfoPill
           icon={hasAC ? 'snowflake' : 'snowflake-off'}
@@ -345,8 +626,20 @@ function RouteCard({ ride, onPress }) {
           />
         ) : null}
 
+        {pickupAway ? (
+          <InfoPill
+            icon="walk"
+            label={`Pickup ${pickupAway} away`}
+            tone="grey"
+          />
+        ) : null}
+
         {driver.verified ? (
-          <InfoPill icon="check-decagram" label="Verified" tone="green" />
+          <InfoPill
+            icon="check-decagram"
+            label="Verified"
+            tone="green"
+          />
         ) : null}
       </View>
     </PressScale>
@@ -363,7 +656,6 @@ const cardStyles = StyleSheet.create({
     marginBottom: SP.lg,
     ...SHADOW,
   },
-
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -443,7 +735,6 @@ const cardStyles = StyleSheet.create({
     color: C.textMuted,
     marginTop: 1,
   },
-
   timeline: {
     marginTop: SP.xl,
   },
@@ -503,14 +794,12 @@ const cardStyles = StyleSheet.create({
   durationSpacer: {
     height: 34,
   },
-
   divider: {
     height: 1,
     backgroundColor: C.border,
     marginTop: SP.lg,
     marginBottom: SP.md,
   },
-
   pillRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -533,10 +822,9 @@ const cardStyles = StyleSheet.create({
   },
 });
 
-
-/* -------------------------------------------------------
-   Defaults
-------------------------------------------------------- */
+/* =======================================================
+   FILTERS
+======================================================= */
 
 const VEHICLE_TYPES = ['Car', 'Van', 'SUV', 'Other'];
 
@@ -546,188 +834,14 @@ const AC_OPTIONS = [
   { value: 'noac', label: 'No AC', icon: 'snowflake-off' },
 ];
 
-const INITIAL_FILTERS = { ac: 'any', types: [] };
+const INITIAL_FILTERS = {
+  ac: 'any',
+  types: [],
+};
 
-function pad(n) {
-  return String(n).padStart(2, '0');
-}
-
-function tomorrowISO() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-/* -------------------------------------------------------
-   Mock data
-------------------------------------------------------- */
-
-// TODO: Remove MOCK_RIDES when the backend search API is ready.
-// Each ride keeps the RideCard structure and adds:
-//   vehicleType        Car | Van | SUV | Other
-//   driver.photoUrl    driver profile picture
-
-const MOCK_RIDES = [
-  {
-    id: 'mock_ride_001',
-    departureTime: '06:30 AM',
-    arrivalTime: '12:00 PM',
-    durationMin: 330,
-    pricePerSeat: 1800,
-    seatsFree: 3,
-    vehicleType: 'Car',
-    driver: {
-      name: 'Kasun Perera',
-      photoUrl: 'https://i.pravatar.cc/150?img=12',
-      verified: true,
-      rating: 4.8,
-      ridesCount: 42,
-      vehicle: 'Toyota Axio',
-      hasAC: true,
-    },
-  },
-  {
-    id: 'mock_ride_002',
-    departureTime: '07:15 AM',
-    arrivalTime: '01:00 PM',
-    durationMin: 345,
-    pricePerSeat: 1200,
-    seatsFree: 8,
-    vehicleType: 'Van',
-    driver: {
-      name: 'Nimal Fernando',
-      photoUrl: 'https://i.pravatar.cc/150?img=33',
-      verified: true,
-      rating: 4.6,
-      ridesCount: 128,
-      vehicle: 'Toyota HiAce',
-      hasAC: true,
-    },
-  },
-  {
-    id: 'mock_ride_003',
-    departureTime: '08:00 AM',
-    arrivalTime: '02:00 PM',
-    durationMin: 360,
-    pricePerSeat: 1500,
-    seatsFree: 2,
-    vehicleType: 'SUV',
-    driver: {
-      name: 'Dilani Silva',
-      photoUrl: 'https://i.pravatar.cc/150?img=47',
-      verified: true,
-      rating: 4.9,
-      ridesCount: 87,
-      vehicle: 'Mitsubishi Montero',
-      hasAC: true,
-    },
-  },
-  {
-    id: 'mock_ride_004',
-    departureTime: '09:30 AM',
-    arrivalTime: '03:45 PM',
-    durationMin: 375,
-    pricePerSeat: 900,
-    seatsFree: 1,
-    vehicleType: 'Car',
-    driver: {
-      name: 'Sampath Jayasinghe',
-      photoUrl: 'https://i.pravatar.cc/150?img=15',
-      verified: false,
-      rating: 4.2,
-      ridesCount: 14,
-      vehicle: 'Suzuki Alto',
-      hasAC: false,
-    },
-  },
-  {
-    id: 'mock_ride_005',
-    departureTime: '11:00 AM',
-    arrivalTime: '05:00 PM',
-    durationMin: 360,
-    pricePerSeat: 1000,
-    seatsFree: 6,
-    vehicleType: 'Van',
-    driver: {
-      name: 'Ruwan Bandara',
-      photoUrl: 'https://i.pravatar.cc/150?img=60',
-      verified: true,
-      rating: 4.4,
-      ridesCount: 63,
-      vehicle: 'Nissan Caravan',
-      hasAC: false,
-    },
-  },
-  {
-    id: 'mock_ride_006',
-    departureTime: '01:30 PM',
-    arrivalTime: '07:30 PM',
-    durationMin: 360,
-    pricePerSeat: 2100,
-    seatsFree: 3,
-    vehicleType: 'SUV',
-    driver: {
-      name: 'Thilini Weerasinghe',
-      photoUrl: 'https://i.pravatar.cc/150?img=45',
-      verified: true,
-      rating: 4.7,
-      ridesCount: 51,
-      vehicle: 'Toyota Land Cruiser',
-      hasAC: true,
-    },
-  },
-  {
-    id: 'mock_ride_007',
-    departureTime: '04:00 PM',
-    arrivalTime: '09:45 PM',
-    durationMin: 345,
-    pricePerSeat: 1600,
-    seatsFree: 2,
-    vehicleType: 'Car',
-    driver: {
-      name: 'Chamara Gunawardena',
-      photoUrl: 'https://i.pravatar.cc/150?img=68',
-      verified: false,
-      rating: 4.5,
-      ridesCount: 22,
-      vehicle: 'Honda Fit',
-      hasAC: true,
-    },
-  },
-  {
-    id: 'mock_ride_008',
-    departureTime: '06:00 PM',
-    arrivalTime: '11:30 PM',
-    durationMin: 330,
-    pricePerSeat: 800,
-    seatsFree: 4,
-    vehicleType: 'Other',
-    driver: {
-      name: 'Pradeep Kumara',
-      photoUrl: 'https://i.pravatar.cc/150?img=52',
-      verified: true,
-      rating: 4.1,
-      ridesCount: 9,
-      vehicle: 'Mini bus',
-      hasAC: false,
-    },
-  },
-];
-
-// Create mock rides using the current search parameters.
-function getMockRides(from, to, date) {
-  return MOCK_RIDES.map((ride) => ({
-    ...ride,
-    from,
-    to,
-    date,
-    driver: { ...ride.driver },
-  }));
-}
-
-/* -------------------------------------------------------
-   Page background
-------------------------------------------------------- */
+/* =======================================================
+   PAGE BACKGROUND
+======================================================= */
 
 function GradientScreen({ children }) {
   return (
@@ -742,9 +856,9 @@ function GradientScreen({ children }) {
   );
 }
 
-/* -------------------------------------------------------
-   Filter panel (hidden until the Filters button is pressed)
-------------------------------------------------------- */
+/* =======================================================
+   FILTER PANEL
+======================================================= */
 
 function FilterPanel({ open, filters, onChange, onClear }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -753,6 +867,7 @@ function FilterPanel({ open, filters, onChange, onClear }) {
   useEffect(() => {
     if (open) {
       setMounted(true);
+
       Animated.timing(anim, {
         toValue: 1,
         duration: 240,
@@ -766,12 +881,9 @@ function FilterPanel({ open, filters, onChange, onClear }) {
         useNativeDriver: true,
       }).start(() => setMounted(false));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  if (!mounted) {
-    return null;
-  }
+  if (!mounted) return null;
 
   function toggleType(type) {
     const has = filters.types.includes(type);
@@ -784,7 +896,8 @@ function FilterPanel({ open, filters, onChange, onClear }) {
     });
   }
 
-  const hasActive = filters.ac !== 'any' || filters.types.length > 0;
+  const hasActive =
+    filters.ac !== 'any' || filters.types.length > 0;
 
   return (
     <Animated.View
@@ -805,14 +918,19 @@ function FilterPanel({ open, filters, onChange, onClear }) {
     >
       <Text style={styles.filterLabel}>Air conditioning</Text>
 
-      <View style={styles.segWrap} accessibilityRole="radiogroup">
+      <View
+        style={styles.segWrap}
+        accessibilityRole="radiogroup"
+      >
         {AC_OPTIONS.map((option) => {
           const selected = filters.ac === option.value;
 
           return (
             <Pressable
               key={option.value}
-              onPress={() => onChange({ ...filters, ac: option.value })}
+              onPress={() =>
+                onChange({ ...filters, ac: option.value })
+              }
               style={[styles.seg, selected && styles.segOn]}
               accessibilityRole="radio"
               accessibilityLabel={option.label}
@@ -823,7 +941,12 @@ function FilterPanel({ open, filters, onChange, onClear }) {
                 size={16}
                 color={selected ? C.white : C.secondary}
               />
-              <Text style={[styles.segText, selected && styles.segTextOn]}>
+              <Text
+                style={[
+                  styles.segText,
+                  selected && styles.segTextOn,
+                ]}
+              >
                 {option.label}
               </Text>
             </Pressable>
@@ -853,7 +976,12 @@ function FilterPanel({ open, filters, onChange, onClear }) {
                 size={18}
                 color={selected ? C.primary : C.textMuted}
               />
-              <Text style={[styles.chipText, selected && styles.chipTextOn]}>
+              <Text
+                style={[
+                  styles.chipText,
+                  selected && styles.chipTextOn,
+                ]}
+              >
                 {type}
               </Text>
             </Pressable>
@@ -868,7 +996,11 @@ function FilterPanel({ open, filters, onChange, onClear }) {
           accessibilityRole="button"
           accessibilityLabel="Clear all filters"
         >
-          <Icon name="close-circle-outline" size={18} color={C.primary} />
+          <Icon
+            name="close-circle-outline"
+            size={18}
+            color={C.primary}
+          />
           <Text style={styles.clearText}>Clear all filters</Text>
         </Pressable>
       ) : null}
@@ -876,136 +1008,195 @@ function FilterPanel({ open, filters, onChange, onClear }) {
   );
 }
 
-/* -------------------------------------------------------
-   Results screen
-------------------------------------------------------- */
+/* =======================================================
+   RESULTS SCREEN
+======================================================= */
 
 export default function ResultsScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const params = route?.params ?? {};
 
-  // Route params, when supplied, are editable initial values—not fixed routes.
-  const [from, setFrom] = useState(String(params.from ?? 'Kandy'));
-  const [to, setTo] = useState(String(params.to ?? 'Colombo'));
-  const [date, setDate] = useState(String(params.date ?? tomorrowISO()));
-  const [departureTime, setDepartureTime] = useState(
-    String(params.departureTime ?? params.time ?? '06:00')
+  // Search inputs
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+
+  const [fromCoords, setFromCoords] = useState(null);
+  const [toCoords, setToCoords] = useState(null);
+
+  const [date, setDate] = useState(
+    String(params.date ?? tomorrowISO())
   );
+
   const [passengers, setPassengers] = useState(
     Math.max(1, Number(params.passengers) || 1)
   );
 
-  // Show sample ride cards immediately; users can open the search form when needed.
-  const [rides, setRides] = useState(() =>
-    getMockRides(
-      String(params.from ?? 'Kandy'),
-      String(params.to ?? 'Colombo'),
-      String(params.date ?? tomorrowISO())
-    )
-  );
+  // Calendar picker
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Results
+  const [rides, setRides] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(true);
-  const [usingMockData, setUsingMockData] = useState(true);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(true);
+
   const [searchError, setSearchError] = useState('');
+  const [apiError, setApiError] = useState('');
+
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState(INITIAL_FILTERS);
 
-  const isValidDate = (value) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-    const parsed = new Date(`${value}T00:00:00`);
-    return (
-      !Number.isNaN(parsed.getTime()) &&
-      parsed.toISOString().slice(0, 10) === value
-    );
-  };
+  // Calendar minimum date: today at local midnight
+  const minimumDate = useMemo(
+    () => getTodayLocalDate(),
+    []
+  );
 
-  const isValidTime = (value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+  // Ensure the date passed from navigation is valid.
+  const selectedCalendarDate = useMemo(() => {
+    const parsed = parseLocalDate(date);
+
+    if (!parsed || parsed < minimumDate) {
+      return minimumDate;
+    }
+
+    return parsed;
+  }, [date, minimumDate]);
+
+  /* -------------------------------------------------------
+     MAP PICKER
+  ------------------------------------------------------- */
+
+  function openMapPicker(type) {
+    const isOrigin = type === 'origin';
+
+    const setCoords = isOrigin
+      ? setFromCoords
+      : setToCoords;
+
+    const setName = isOrigin
+      ? setFrom
+      : setTo;
+
+    setMapPickerSelectionHandler((location) => {
+      setCoords({
+        latitude: location.latitude,
+        longitude: location.longitude,
+      });
+
+      setName(
+        location.placeName ||
+          `Selected location (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`
+      );
+    });
+
+    const initial =
+      (isOrigin ? fromCoords : toCoords) ||
+      DEFAULT_MAP_CENTER;
+
+    router.push({
+      pathname: '/map-picker',
+      params: {
+        latitude: String(initial.latitude),
+        longitude: String(initial.longitude),
+        placeName: isOrigin ? from : to,
+      },
+    });
+  }
+
+  function swapLocations() {
+    setFrom(to);
+    setTo(from);
+
+    setFromCoords(toCoords);
+    setToCoords(fromCoords);
+  }
+
+  /* -------------------------------------------------------
+     DATE PICKER HANDLER
+  ------------------------------------------------------- */
+
+  function handleDateChange(event, selectedDate) {
+    setShowDatePicker(false);
+
+    if (event.type === 'set' && selectedDate) {
+      const formattedDate = formatDateForBackend(selectedDate);
+
+      setDate(formattedDate);
+      setSearchError('');
+      setApiError('');
+    }
+  }
+
+  /* -------------------------------------------------------
+     SEARCH
+  ------------------------------------------------------- */
 
   const load = useCallback(async () => {
-    const cleanFrom = from.trim();
-    const cleanTo = to.trim();
     const cleanDate = date.trim();
-    const cleanTime = departureTime.trim();
 
-    if (!cleanFrom || !cleanTo || !cleanDate || !cleanTime) {
+    if (!fromCoords || !toCoords) {
       setSearchError(
-        'Please enter your origin, destination, travel date and departure time.'
+        'Choose a suggestion (or use the pin button) for both origin and destination.'
       );
       return;
     }
 
-    if (cleanFrom.toLowerCase() === cleanTo.toLowerCase()) {
-      setSearchError('Origin and destination must be different.');
+    if (
+      fromCoords.latitude === toCoords.latitude &&
+      fromCoords.longitude === toCoords.longitude
+    ) {
+      setSearchError(
+        'Origin and destination must be different.'
+      );
       return;
     }
 
     if (!isValidDate(cleanDate)) {
-      setSearchError('Enter a valid date in YYYY-MM-DD format.');
+      setSearchError('Please select a valid travel date.');
       return;
     }
 
-    if (!isValidTime(cleanTime)) {
+    if (isPastDate(cleanDate)) {
       setSearchError(
-        'Enter a valid departure time in 24-hour format, for example 08:30.'
+        'Travel date cannot be in the past. Please select today or a future date.'
       );
       return;
     }
 
     setSearchError('');
+    setApiError('');
     setHasSearched(true);
     setSearchOpen(false);
     setLoading(true);
-    setUsingMockData(false);
     setRides([]);
 
     try {
-      const result = await searchRides({
-        from: cleanFrom,
-        to: cleanTo,
+      const rows = await searchRidesFromBackend({
+        pickup: fromCoords,
+        dropoff: toCoords,
         date: cleanDate,
-        departureTime: cleanTime,
         passengers,
       });
 
-      const rideList = Array.isArray(result)
-        ? result
-        : Array.isArray(result?.rides)
-          ? result.rides
-          : null;
-
-      if (!rideList) {
-        throw new Error('Invalid ride list received from server.');
-      }
-
-      setRides(rideList);
-    } catch (err) {
-      console.log(
-        'Ride search API unavailable. Showing mock rides:',
-        err?.message
-      );
-
-      const [requestedHours, requestedMinutes] = cleanTime.split(':').map(Number);
-      const requestedMinutesTotal = requestedHours * 60 + requestedMinutes;
-      const mockRides = getMockRides(cleanFrom, cleanTo, cleanDate);
-
       setRides(
-        mockRides.filter((ride) => {
-          const match = String(ride.departureTime || '').match(
-            /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i
-          );
-          if (!match) return true;
-
-          let hours = Number(match[1]) % 12;
-          if (match[3].toUpperCase() === 'PM') hours += 12;
-          return hours * 60 + Number(match[2]) >= requestedMinutesTotal;
-        })
+        rows.map((row) => mapBackendRide(row, cleanDate))
       );
-      setUsingMockData(true);
+    } catch (err) {
+      console.log('Ride search failed:', err?.message);
+
+      setApiError(
+        err?.message || 'Something went wrong. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
-  }, [from, to, date, departureTime, passengers]);
+  }, [fromCoords, toCoords, date, passengers]);
+
+  /* -------------------------------------------------------
+     FILTER RESULTS
+  ------------------------------------------------------- */
 
   const visibleRides = useMemo(() => {
     return (rides || []).filter((ride) => {
@@ -1026,9 +1217,12 @@ export default function ResultsScreen({ route, navigation }) {
   }, [rides, filters]);
 
   const activeFilterCount =
-    (filters.ac !== 'any' ? 1 : 0) + filters.types.length;
+    (filters.ac !== 'any' ? 1 : 0) +
+    filters.types.length;
 
-  const clearFilters = useCallback(() => setFilters(INITIAL_FILTERS), []);
+  const clearFilters = useCallback(() => {
+    setFilters(INITIAL_FILTERS);
+  }, []);
 
   const renderItem = useCallback(
     ({ item }) => (
@@ -1045,231 +1239,450 @@ export default function ResultsScreen({ route, navigation }) {
     [navigation, passengers]
   );
 
+  /* -------------------------------------------------------
+     HEADER
+  ------------------------------------------------------- */
+
   const header = (
-
     <SafeAreaView>
-    <View>
-      <PressScale
-        onPress={() => setSearchOpen((open) => !open)}
-        label={searchOpen ? 'Hide ride search' : 'Search for rides'}
-        state={{ expanded: searchOpen }}
-        style={styles.searchToggleButton}
-      >
-        <Icon name={searchOpen ? 'close' : 'magnify'} size={20} color={C.white} />
-        <Text style={styles.searchToggleText}>
-          {searchOpen ? 'Close search' : 'Search rides'}
-        </Text>
-        <Icon name={searchOpen ? 'chevron-up' : 'chevron-down'} size={18} color={C.white} />
-      </PressScale>
+      <View style={styles.headerWrap}>
+        <PressScale
+          onPress={() => setSearchOpen((open) => !open)}
+          label={
+            searchOpen ? 'Hide ride search' : 'Search for rides'
+          }
+          state={{ expanded: searchOpen }}
+          style={styles.searchToggleButton}
+        >
+          <Icon
+            name={searchOpen ? 'close' : 'magnify'}
+            size={20}
+            color={C.white}
+          />
 
-      {searchOpen ? <View style={styles.searchCard}>
-        <View style={styles.searchHeadingRow}>
-          <View style={styles.searchHeadingIcon}>
-            <Icon name="map-search-outline" size={21} color={C.primary} />
-          </View>
-          <View style={styles.searchHeadingText}>
-            <Text style={styles.searchHeading}>Find your ride</Text>
-            <Text style={styles.searchSubheading}>
-              Enter your trip details to see available rides
-            </Text>
-          </View>
-        </View>
+          <Text style={styles.searchToggleText}>
+            {searchOpen ? 'Close search' : 'Search rides'}
+          </Text>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>ORIGIN</Text>
-          <View style={styles.inputShell}>
-            <Icon name="map-marker-radius-outline" size={20} color={C.primary} />
-            <TextInput
-              value={from}
-              onChangeText={setFrom}
-              placeholder="Where are you travelling from?"
-              placeholderTextColor={C.grey}
-              style={styles.searchInput}
-              returnKeyType="next"
-              autoCapitalize="words"
-              accessibilityLabel="Origin"
-            />
-          </View>
-        </View>
+          <Icon
+            name={searchOpen ? 'chevron-up' : 'chevron-down'}
+            size={18}
+            color={C.white}
+          />
+        </PressScale>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>DESTINATION</Text>
-          <View style={styles.inputShell}>
-            <Icon name="map-marker-outline" size={20} color={C.primary} />
-            <TextInput
-              value={to}
-              onChangeText={setTo}
-              placeholder="Where do you want to go?"
-              placeholderTextColor={C.grey}
-              style={styles.searchInput}
-              returnKeyType="next"
-              autoCapitalize="words"
-              accessibilityLabel="Destination"
-            />
-          </View>
-        </View>
+        {searchOpen ? (
+          <View style={styles.searchCard}>
+            <View style={styles.searchHeadingRow}>
+              <View style={styles.searchHeadingIcon}>
+                <Icon
+                  name="map-search-outline"
+                  size={21}
+                  color={C.primary}
+                />
+              </View>
 
-        <View style={styles.tripOptionsRow}>
-          <View style={[styles.inputGroup, styles.tripOption]}>
-            <Text style={styles.inputLabel}>TRAVEL DATE</Text>
-            <View style={styles.inputShell}>
-              <Icon name="calendar-month-outline" size={19} color={C.primary} />
-              <TextInput
-                value={date}
-                onChangeText={setDate}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={C.grey}
-                style={styles.searchInput}
-                keyboardType="numbers-and-punctuation"
-                maxLength={10}
-                accessibilityLabel="Travel date"
+              <View style={styles.searchHeadingText}>
+                <Text style={styles.searchHeading}>
+                  Find your ride
+                </Text>
+
+                <Text style={styles.searchSubheading}>
+                  Search places or pick them on the map
+                </Text>
+              </View>
+            </View>
+
+            {/* ORIGIN AND DESTINATION */}
+
+            <View style={styles.inputsWrap}>
+              <PlaceInput
+                label="Origin"
+                color={C.success}
+                value={from}
+                hasCoords={!!fromCoords}
+                onChangeText={(t) => {
+                  setFrom(t);
+                  setFromCoords(null);
+                }}
+                onSelect={(p) => {
+                  setFrom(p.name);
+
+                  setFromCoords({
+                    latitude: p.latitude,
+                    longitude: p.longitude,
+                  });
+                }}
+                onPickMap={() => openMapPicker('origin')}
+              />
+
+              <Pressable
+                style={styles.swapBtn}
+                onPress={swapLocations}
+                accessibilityRole="button"
+                accessibilityLabel="Swap origin and destination"
+              >
+                <Icon
+                  name="swap-vertical"
+                  size={18}
+                  color={C.white}
+                />
+              </Pressable>
+
+              <PlaceInput
+                label="Destination"
+                color={C.danger}
+                value={to}
+                hasCoords={!!toCoords}
+                onChangeText={(t) => {
+                  setTo(t);
+                  setToCoords(null);
+                }}
+                onSelect={(p) => {
+                  setTo(p.name);
+
+                  setToCoords({
+                    latitude: p.latitude,
+                    longitude: p.longitude,
+                  });
+                }}
+                onPickMap={() => openMapPicker('destination')}
               />
             </View>
-          </View>
 
-          <View style={[styles.inputGroup, styles.tripOption, styles.tripOptionSecond]}>
-            <Text style={styles.inputLabel}>DEPARTURE TIME</Text>
-            <View style={styles.inputShell}>
-              <Icon name="clock-outline" size={19} color={C.primary} />
-              <TextInput
-                value={departureTime}
-                onChangeText={setDepartureTime}
-                placeholder="HH:MM"
-                placeholderTextColor={C.grey}
-                style={styles.searchInput}
-                keyboardType="numbers-and-punctuation"
-                maxLength={5}
-                accessibilityLabel="Departure time"
-              />
-            </View>
-          </View>
-        </View>
+            {/* TRAVEL DATE CALENDAR */}
 
-        <View style={styles.passengerRow}>
-          <View style={styles.passengerInfo}>
-            <View style={styles.passengerIcon}>
-              <Icon name="account-multiple-outline" size={20} color={C.primary} />
-            </View>
-            <View>
-              <Text style={styles.passengerTitle}>Passengers</Text>
-              <Text style={styles.passengerHint}>How many seats do you need?</Text>
-            </View>
-          </View>
+            <View style={[styles.inputGroup, styles.dateGroup]}>
+              <Text style={styles.inputLabel}>
+                TRAVEL DATE
+              </Text>
 
-          <View style={styles.stepper}>
-            <Pressable
-              onPress={() => setPassengers((count) => Math.max(1, count - 1))}
-              style={styles.stepperButton}
-              accessibilityRole="button"
-              accessibilityLabel="Remove one passenger"
-              disabled={passengers <= 1}
+              <Pressable
+                style={styles.inputShell}
+                onPress={() => setShowDatePicker(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Select travel date"
+              >
+                <Icon
+                  name="calendar-month-outline"
+                  size={20}
+                  color={C.primary}
+                />
+
+                <View style={styles.dateTextContainer}>
+                  <Text style={styles.dateValue}>
+                    {date}
+                  </Text>
+
+                  <Text style={styles.dateHint}>
+                    Tap to choose your travel date
+                  </Text>
+                </View>
+
+                <Icon
+                  name="chevron-down"
+                  size={20}
+                  color={C.grey}
+                />
+              </Pressable>
+
+              {showDatePicker ? (
+                <DateTimePicker
+                  value={selectedCalendarDate}
+                  mode="date"
+                  display="default"
+                  minimumDate={minimumDate}
+                  onChange={handleDateChange}
+                />
+              ) : null}
+            </View>
+
+            {/* PASSENGERS */}
+
+            <View style={styles.passengerRow}>
+              <View style={styles.passengerInfo}>
+                <View style={styles.passengerIcon}>
+                  <Icon
+                    name="account-multiple-outline"
+                    size={20}
+                    color={C.primary}
+                  />
+                </View>
+
+                <View>
+                  <Text style={styles.passengerTitle}>
+                    Passengers
+                  </Text>
+
+                  <Text style={styles.passengerHint}>
+                    How many seats do you need?
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.stepper}>
+                <Pressable
+                  onPress={() =>
+                    setPassengers((count) =>
+                      Math.max(1, count - 1)
+                    )
+                  }
+                  style={styles.stepperButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove one passenger"
+                  disabled={passengers <= 1}
+                >
+                  <Icon
+                    name="minus"
+                    size={18}
+                    color={passengers <= 1 ? C.grey : C.primary}
+                  />
+                </Pressable>
+
+                <Text style={styles.passengerCount}>
+                  {passengers}
+                </Text>
+
+                <Pressable
+                  onPress={() =>
+                    setPassengers((count) =>
+                      Math.min(12, count + 1)
+                    )
+                  }
+                  style={styles.stepperButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add one passenger"
+                  disabled={passengers >= 12}
+                >
+                  <Icon
+                    name="plus"
+                    size={18}
+                    color={passengers >= 12 ? C.grey : C.primary}
+                  />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* VALIDATION ERROR */}
+
+            {searchError ? (
+              <View style={styles.searchError}>
+                <Icon
+                  name="alert-circle-outline"
+                  size={18}
+                  color={C.danger}
+                />
+
+                <Text style={styles.searchErrorText}>
+                  {searchError}
+                </Text>
+              </View>
+            ) : null}
+
+            {/* SEARCH BUTTON */}
+
+            <PressScale
+              onPress={load}
+              disabled={loading}
+              label="Search available rides"
+              style={[
+                styles.searchButton,
+                loading && styles.searchButtonDisabled,
+              ]}
             >
-              <Icon
-                name="minus"
-                size={18}
-                color={passengers <= 1 ? C.grey : C.primary}
-              />
-            </Pressable>
-            <Text style={styles.passengerCount}>{passengers}</Text>
-            <Pressable
-              onPress={() => setPassengers((count) => Math.min(12, count + 1))}
-              style={styles.stepperButton}
-              accessibilityRole="button"
-              accessibilityLabel="Add one passenger"
-              disabled={passengers >= 12}
-            >
-              <Icon
-                name="plus"
-                size={18}
-                color={passengers >= 12 ? C.grey : C.primary}
-              />
-            </Pressable>
-          </View>
-        </View>
+              {loading ? (
+                <ActivityIndicator color={C.white} />
+              ) : (
+                <>
+                  <Icon
+                    name="magnify"
+                    size={20}
+                    color={C.white}
+                  />
 
-        {searchError ? (
-          <View style={styles.searchError}>
-            <Icon name="alert-circle-outline" size={18} color={C.danger} />
-            <Text style={styles.searchErrorText}>{searchError}</Text>
+                  <Text style={styles.searchButtonText}>
+                    Search rides
+                  </Text>
+                </>
+              )}
+            </PressScale>
           </View>
         ) : null}
 
-        <PressScale
-          onPress={load}
-          disabled={loading}
-          label="Search available rides"
-          style={[styles.searchButton, loading && styles.searchButtonDisabled]}
-        >
-          {loading ? (
-            <ActivityIndicator color={C.white} />
-          ) : (
-            <>
-              <Icon name="magnify" size={20} color={C.white} />
-              <Text style={styles.searchButtonText}>Search rides</Text>
-            </>
-          )}
-        </PressScale>
-      </View> : null}
+        {/* RESULTS TITLE AND FILTERS */}
 
-      {usingMockData ? (
-        <View style={styles.mockNotice}>
-          <Icon name="information-outline" size={20} color={C.primary} />
-          <Text style={styles.mockNoticeText}>
-            Showing sample rides because the live search is unavailable.
-          </Text>
-        </View>
-      ) : null}
+        {hasSearched && !loading && !apiError ? (
+          <>
+            <View style={styles.titleRow}>
+              <View style={styles.titleText}>
+                <Text
+                  style={styles.resultsTitle}
+                  accessibilityRole="header"
+                >
+                  Available rides
+                </Text>
 
-      {hasSearched ? (
-        <>
-          <View style={styles.titleRow}>
-            <View style={styles.titleText}>
-              <Text style={styles.resultsTitle} accessibilityRole="header">
-                Available rides
-              </Text>
-              <Text style={styles.resultsCount} accessibilityLiveRegion="polite">
-                {activeFilterCount > 0
-                  ? `${visibleRides.length} of ${rides.length} rides`
-                  : `${rides.length} ${rides.length === 1 ? 'ride' : 'rides'} found`}
-              </Text>
+                <Text
+                  style={styles.resultsCount}
+                  accessibilityLiveRegion="polite"
+                >
+                  {activeFilterCount > 0
+                    ? `${visibleRides.length} of ${rides.length} rides`
+                    : `${rides.length} ${rides.length === 1 ? 'ride' : 'rides'} found`}
+                </Text>
+              </View>
+
+              <PressScale
+                onPress={() =>
+                  setFiltersOpen((previous) => !previous)
+                }
+                label={
+                  activeFilterCount > 0
+                    ? `Filters, ${activeFilterCount} active`
+                    : 'Filters'
+                }
+                state={{ expanded: filtersOpen }}
+                style={[
+                  styles.filterButton,
+                  (filtersOpen || activeFilterCount > 0) &&
+                    styles.filterButtonOn,
+                ]}
+              >
+                <Icon
+                  name="tune-variant"
+                  size={18}
+                  color={C.primary}
+                />
+
+                <Text style={styles.filterButtonText}>
+                  Filters
+                </Text>
+
+                {activeFilterCount > 0 ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>
+                      {activeFilterCount}
+                    </Text>
+                  </View>
+                ) : null}
+              </PressScale>
             </View>
 
-            <PressScale
-              onPress={() => setFiltersOpen((previous) => !previous)}
-              label={
-                activeFilterCount > 0
-                  ? `Filters, ${activeFilterCount} active`
-                  : 'Filters'
-              }
-              state={{ expanded: filtersOpen }}
-              style={[
-                styles.filterButton,
-                (filtersOpen || activeFilterCount > 0) && styles.filterButtonOn,
-              ]}
-            >
-              <Icon name="tune-variant" size={18} color={C.primary} />
-              <Text style={styles.filterButtonText}>Filters</Text>
-              {activeFilterCount > 0 ? (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{activeFilterCount}</Text>
-                </View>
-              ) : null}
-            </PressScale>
-          </View>
-
-          <FilterPanel
-            open={filtersOpen}
-            filters={filters}
-            onChange={setFilters}
-            onClear={clearFilters}
-          />
-        </>
-      ) : null}
-    </View>
+            <FilterPanel
+              open={filtersOpen}
+              filters={filters}
+              onChange={setFilters}
+              onClear={clearFilters}
+            />
+          </>
+        ) : null}
+      </View>
     </SafeAreaView>
   );
 
-  const filteredOut = rides.length > 0 && visibleRides.length === 0;
+  /* -------------------------------------------------------
+     EMPTY / LOADING / ERROR STATES
+  ------------------------------------------------------- */
+
+  const filteredOut =
+    rides.length > 0 && visibleRides.length === 0;
+
+  const emptyComponent = loading ? (
+    <View style={styles.empty}>
+      <ActivityIndicator size="large" color={C.primary} />
+
+      <Text style={styles.loadingText}>
+        Searching for rides...
+      </Text>
+    </View>
+  ) : apiError ? (
+    <View style={styles.empty}>
+      <View
+        style={[
+          styles.emptyIcon,
+          { backgroundColor: C.dangerSoft },
+        ]}
+      >
+        <Icon
+          name="wifi-off"
+          size={44}
+          color={C.danger}
+        />
+      </View>
+
+      <Text style={styles.emptyTitle}>
+        Couldn't search rides
+      </Text>
+
+      <Text style={styles.emptyText}>
+        {apiError}
+      </Text>
+
+      <PressScale
+        onPress={load}
+        label="Try again"
+        style={styles.button}
+      >
+        <Text style={styles.buttonText}>
+          Try again
+        </Text>
+      </PressScale>
+    </View>
+  ) : (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <Icon
+          name={
+            !hasSearched
+              ? 'magnify'
+              : filteredOut
+                ? 'filter-off-outline'
+                : 'car-off'
+          }
+          size={44}
+          color={C.primary}
+        />
+      </View>
+
+      <Text style={styles.emptyTitle}>
+        {!hasSearched
+          ? 'Ready to find a ride?'
+          : filteredOut
+            ? 'No rides match your filters'
+            : 'No rides found'}
+      </Text>
+
+      <Text style={styles.emptyText}>
+        {!hasSearched
+          ? 'Choose your origin, destination, travel date and passenger count above.'
+          : filteredOut
+            ? 'Try turning off a filter to see more rides.'
+            : 'There are no rides for these places on this date. Try another date or location.'}
+      </Text>
+
+      {hasSearched ? (
+        <PressScale
+          onPress={
+            filteredOut
+              ? clearFilters
+              : () => setSearchOpen(true)
+          }
+          label={
+            filteredOut ? 'Clear filters' : 'Change search'
+          }
+          style={styles.button}
+        >
+          <Text style={styles.buttonText}>
+            {filteredOut ? 'Clear filters' : 'Change search'}
+          </Text>
+        </PressScale>
+      ) : null}
+    </View>
+  );
+
+  /* -------------------------------------------------------
+     PAGE RENDER
+  ------------------------------------------------------- */
 
   return (
     <GradientScreen>
@@ -1279,66 +1692,27 @@ export default function ResultsScreen({ route, navigation }) {
           styles.content,
           { paddingBottom: insets.bottom + 120 },
         ]}
-        data={hasSearched ? visibleRides : []}
+        data={
+          hasSearched && !apiError
+            ? visibleRides
+            : []
+        }
         keyExtractor={(item, index) =>
           String(item.id ?? item._id ?? `ride-${index}`)
         }
         ListHeaderComponent={header}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <View style={styles.emptyIcon}>
-              <Icon
-                name={
-                  !hasSearched
-                    ? 'magnify'
-                    : filteredOut
-                      ? 'filter-off-outline'
-                      : 'car-off'
-                }
-                size={44}
-                color={C.primary}
-              />
-            </View>
-
-            <Text style={styles.emptyTitle}>
-              {!hasSearched
-                ? 'Ready to find a ride?'
-                : filteredOut
-                  ? 'No rides match your filters'
-                  : 'No rides found'}
-            </Text>
-
-            <Text style={styles.emptyText}>
-              {!hasSearched
-                ? 'Enter your origin, destination, travel date, departure time and passenger count above.'
-                : filteredOut
-                  ? 'Try turning off a filter to see more rides.'
-                  : 'There are currently no rides for these search details. Try another time or destination.'}
-            </Text>
-
-            {hasSearched ? (
-              <PressScale
-                onPress={filteredOut ? clearFilters : load}
-                label={filteredOut ? 'Clear filters' : 'Search again'}
-                style={styles.button}
-              >
-                <Text style={styles.buttonText}>
-                  {filteredOut ? 'Clear filters' : 'Search again'}
-                </Text>
-              </PressScale>
-            ) : null}
-          </View>
-        }
+        ListEmptyComponent={emptyComponent}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       />
     </GradientScreen>
   );
 }
 
-/* -------------------------------------------------------
-   Styles
-------------------------------------------------------- */
+/* =======================================================
+   STYLES
+======================================================= */
 
 const styles = StyleSheet.create({
   flex: {
@@ -1376,11 +1750,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: SP.xxl,
+  headerWrap: {
+    zIndex: 10,
   },
 
   loadingText: {
@@ -1400,6 +1771,7 @@ const styles = StyleSheet.create({
     marginBottom: SP.lg,
     ...SHADOW,
   },
+
   searchToggleText: {
     color: C.white,
     fontSize: 15,
@@ -1409,12 +1781,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  /* editable trip search form */
   searchCard: {
     backgroundColor: C.white,
     borderRadius: R.lg,
     padding: SP.xl,
     marginBottom: SP.xl,
+    zIndex: 10,
     ...SHADOW,
   },
 
@@ -1450,8 +1822,32 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
+  inputsWrap: {
+    zIndex: 20,
+  },
+
+  swapBtn: {
+    alignSelf: 'flex-end',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SP.md,
+    marginVertical: -8,
+    zIndex: 2,
+    borderWidth: 3,
+    borderColor: C.white,
+  },
+
   inputGroup: {
     marginBottom: SP.md,
+  },
+
+  dateGroup: {
+    marginTop: SP.lg,
+    zIndex: 1,
   },
 
   inputLabel: {
@@ -1463,7 +1859,7 @@ const styles = StyleSheet.create({
   },
 
   inputShell: {
-    minHeight: 52,
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
@@ -1473,27 +1869,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: SP.md,
   },
 
-  searchInput: {
+  dateTextContainer: {
     flex: 1,
-    minWidth: 0,
+    marginLeft: SP.sm,
+  },
+
+  dateValue: {
     color: C.text,
-    fontSize: 14,
-    fontWeight: '600',
-    paddingVertical: SP.md,
-    paddingLeft: SP.sm,
+    fontSize: 15,
+    fontWeight: '700',
   },
 
-  tripOptionsRow: {
-    flexDirection: 'row',
-  },
-
-  tripOption: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  tripOptionSecond: {
-    marginLeft: SP.md,
+  dateHint: {
+    color: C.textMuted,
+    fontSize: 11,
+    marginTop: 2,
   },
 
   passengerRow: {
@@ -1505,6 +1895,7 @@ const styles = StyleSheet.create({
     borderTopColor: C.border,
     marginTop: SP.xs,
     paddingTop: SP.md,
+    zIndex: 1,
   },
 
   passengerInfo: {
@@ -1601,25 +1992,6 @@ const styles = StyleSheet.create({
     marginLeft: SP.sm,
   },
 
-  /* sample data notice */
-  mockNotice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: C.tint,
-    borderRadius: R.md,
-    padding: SP.md,
-    marginBottom: SP.lg,
-  },
-
-  mockNoticeText: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-    color: C.secondary,
-    marginLeft: SP.sm,
-  },
-
-  /* title row + filters button */
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1686,7 +2058,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  /* filter panel */
   filterCard: {
     backgroundColor: C.white,
     borderRadius: R.lg,
@@ -1787,7 +2158,6 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
 
-  /* empty state */
   empty: {
     alignItems: 'center',
     marginTop: SP.xxxl,
