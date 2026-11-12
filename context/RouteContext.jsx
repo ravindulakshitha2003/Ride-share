@@ -9,15 +9,24 @@ import React, {
 const RouteContext = createContext(null);
 
 export function RouteProvider({ children }) {
-  // { origin, destination, distanceKm, durationMinutes, profile, routeSignature, savedAt }
-  // Only the signature + summary are stored. No route points.
+  // {
+  //   origin: { placeName, latitude, longitude },
+  //   destination: { placeName, latitude, longitude },
+  //   geometry: { type: "LineString", coordinates: [[lng, lat], ...] },  // straight from OSRM
+  //   distanceMeters, durationSeconds,   // straight from OSRM (sent to backend)
+  //   distanceKm, durationMinutes,       // for display only
+  //   savedAt
+  // }
   const [routeData, setRouteData] = useState(null);
 
-  // Stable identities: RoutePreview won't recalculate in a loop.
+  // Stable identities so screens don't re-run effects in a loop.
   const saveRoute = useCallback((data) => {
-    // Same hash = same route, so keep the old object (no extra re-render).
-    setRouteData((prev) => (prev?.routeSignature === data.routeSignature ? prev : data));
-    console.log("✅ Route signature saved in context:", data.routeSignature);
+    setRouteData(data);
+    console.log(
+      "✅ Route saved in context:",
+      data?.geometry?.coordinates?.length,
+      "points"
+    );
   }, []);
 
   const clearRoute = useCallback(() => setRouteData(null), []);
