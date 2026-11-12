@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,8 +11,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import NotificationItem from "../components/notifications/NotificationItem";
-import { getNotifications, markNotificationRead } from "../api/notifications";
 import { colors } from "../theme/colors";
+import { useNotifications } from "../context/notificationContext";
 
 const isToday = (iso) =>
   new Date(iso).toDateString() === new Date().toDateString();
@@ -25,25 +25,17 @@ const FILTERS = [
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const [notifications, setNotifications] = useState([]);
+  const { notifications, unreadCount, refresh, markRead, markAllRead } =
+    useNotifications();
+
   const [filter, setFilter] = useState("all"); // "all" | "unread" | "payments"
   const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
-    setNotifications(await getNotifications());
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
   const onRefresh = async () => {
     setRefreshing(true);
-    await load();
+    await refresh();
     setRefreshing(false);
   };
-
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   const sections = useMemo(() => {
     const visible =
@@ -59,16 +51,10 @@ export default function NotificationsScreen() {
     ].filter((section) => section.data.length > 0);
   }, [notifications, filter]);
 
-  const handlePress = async (item) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
-    );
-    await markNotificationRead(item.id);
+  const handlePress = (item) => {
+    markRead(item.id);
     // TODO: open ride details, e.g. router.push("/Rideinfoscreen")
   };
-
-  const markAllAsRead = () =>
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
 
   const emptyMessage =
     filter === "unread"
@@ -81,10 +67,9 @@ export default function NotificationsScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-       <TouchableOpacity onPress={() => router.back()} hitSlop={10}>
-         <Ionicons name="chevron-back" size={26} color={colors.secondary} />
-         <Ionicons name="notifications-off-outline" size={48} color={colors.border} />
-      </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={10}>
+          <Ionicons name="chevron-back" size={26} color={colors.secondary} />
+        </TouchableOpacity>
 
         <View style={styles.headerText}>
           <Text style={styles.heading}>Notifications</Text>
@@ -93,7 +78,7 @@ export default function NotificationsScreen() {
           )}
         </View>
 
-        <TouchableOpacity onPress={markAllAsRead} disabled={unreadCount === 0}>
+        <TouchableOpacity onPress={markAllRead} disabled={unreadCount === 0}>
           <Text style={[styles.action, unreadCount === 0 && styles.actionOff]}>
             Read all
           </Text>
@@ -138,7 +123,7 @@ export default function NotificationsScreen() {
             <Ionicons
               name="notifications-off-outline"
               size={48}
-              color="#cbd5e1"
+              color={colors.border}
             />
             <Text style={styles.emptyText}>{emptyMessage}</Text>
           </View>

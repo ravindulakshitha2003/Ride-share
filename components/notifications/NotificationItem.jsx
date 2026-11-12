@@ -3,13 +3,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors } from "../../theme/colors";
 
 // Placeholder palette: swap for theme/colors.js values later
+
+const PAYMENT_VIOLET = "#7C3AED"; // a violet that sits next to your indigo
+const PAYMENT_MAGENTA = "#A21CAF"; // a darker version of your pink accent
+
+
 const TYPE_STYLES = {
-  ride_accepted: { icon: "checkmark", color: "#16a34a", bg: "#dcfce7" },
-  ride_rejected: { icon: "close", color: colors.error, bg: colors.error + "1A" }, //1A is 10% opacity
-  ride_published: { icon: "car-sport", color: colors.primary, bg: colors.primary + "1A" },
-  payment_success: { icon: "card", color: "#16a34a", bg: "#dcfce7" },
-  payment_received: { icon: "cash", color: "#0d9488", bg: "#ccfbf1" },
-  payment_failed: { icon: "alert-circle", color: "#d97706", bg: "#fef3c7" },
+  ride_accepted: { icon: "checkmark", color: colors.primary, bg: colors.primary + "1A" },
+  ride_rejected: { icon: "close", color: colors.error, bg: colors.error + "1A" },
+  ride_published: { icon: "car-sport", color: colors.secondary, bg: colors.secondary + "1A" },
+  payment_success: { icon: "card", color: PAYMENT_VIOLET, bg: PAYMENT_VIOLET + "1A" },
+  payment_received: { icon: "cash", color: PAYMENT_MAGENTA, bg: PAYMENT_MAGENTA + "1A" },
+  payment_failed: { icon: "alert-circle", color: colors.error, bg: colors.error + "1A" },
 };
 
 function timeAgo(iso) {
