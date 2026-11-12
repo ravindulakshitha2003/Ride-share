@@ -1,6 +1,7 @@
 // PAGE 1: PublishRideScreen (file: publish-ride.jsx)
-// OSRM route picker (map, alternatives, selection) -> SHA-256 routeSignature
-// -> saved in RouteContext -> Rideinfoscreen (page 2).
+// OSRM route picker (map, alternatives, selection)
+// -> selected route geometry + distance + duration saved in RouteContext
+// -> Rideinfoscreen (page 2) sends everything to the backend.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,14 +16,12 @@ import {
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import * as Crypto from "expo-crypto";
 
 import { useRoute } from "../../context/RouteContext";
 import { setMapPickerSelectionHandler } from "../../context/mapNavigation";
 import PlaceInput from "../../components/map/PlaceInput";
 
 const OSRM_BASE = "https://router.project-osrm.org/route/v1/driving";
-const ROUTING_PROFILE = "driving";
 const TIMEOUT_MS = 30000;
 const PRICE_PER_KM = 10;
 
@@ -36,7 +35,6 @@ const GREEN = "#1F9D63";
 const RED = "#D64545";
 const ALT = "#9AA7B4";
 const MBLUE = "#1F6FEB";
- 
 
 // ─────────────── Helpers ───────────────
 
@@ -48,29 +46,6 @@ function formatDuration(min) {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return m ? `${h} h ${m} min` : `${h} h`;
-}
-
-// Route fingerprint (SHA-256 hex), same fields and order as the backend version:
-// origin, destination, geometry, distance, duration, weight, weight_name, profile.
-// origin/destination = latitude + longitude only. distance is metres, duration is seconds.
-// Uses expo-crypto because Node's 'crypto' is not available in React Native.
-async function generateRouteFingerprint(route, origin, destination) {
-  const routeData = {
-    origin,
-    destination,
-    geometry: route.geometry,
-    distance: route.distance,
-    duration: route.duration,
-    weight: route.weight,
-    weight_name: route.weight_name,
-    profile: ROUTING_PROFILE,
-  };
-
-  return Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    JSON.stringify(routeData),
-    { encoding: Crypto.CryptoEncoding.HEX }
-  );
 }
 
 // ─────────────── Screen ───────────────
@@ -114,7 +89,7 @@ export default function PublishRideScreen() {
     setRoutes([]);
     setSelectedIndex(0);
     setErrorText("");
-    clearRoute(); // old signature is no longer valid
+    clearRoute(); // previously saved route is no longer valid
 
     if (!requestUrl) {
       setStatus("idle");
@@ -158,14 +133,10 @@ export default function PublishRideScreen() {
             suggestedPrice: Math.round((km * PRICE_PER_KM) / 50) * 50,
             pointCount: r.geometry.coordinates.length,
             points: toMapPoints(r.geometry.coordinates),
-            // raw OSRM values, used only for the signature
-            osrm: {
-              geometry: r.geometry,
-              distance: r.distance,
-              duration: r.duration,
-              weight: r.weight,
-              weight_name: r.weight_name,
-            },
+            // Raw OSRM values. These are sent to the backend as-is.
+            geometry: r.geometry, // GeoJSON LineString [[lng, lat], ...]
+            distanceMeters: r.distance,
+            durationSeconds: r.duration,
           };
         });
 
@@ -235,7 +206,7 @@ export default function PublishRideScreen() {
     setDestinationCoordinates(originCoordinates);
   }
 
-  async function handleContinue() {
+  function handleContinue() {
     if (saving) return;
 
     if (!origin.trim() || !destination.trim()) {
@@ -251,26 +222,23 @@ export default function PublishRideScreen() {
     try {
       setSaving(true);
 
-      const o = {
-        latitude: Number(originCoordinates.latitude),
-        longitude: Number(originCoordinates.longitude),
-      };
-      const d = {
-        latitude: Number(destinationCoordinates.latitude),
-        longitude: Number(destinationCoordinates.longitude),
-      };
-
-      const routeSignature = await generateRouteFingerprint(selected.osrm, o, d);
-      console.log("🔏 routeSignature:", routeSignature);
-
-      // Only the signature + summary go into context. No points.
+      // Save the selected route (all points) in context for page 2.
       saveRoute({
-        origin: { placeName: origin.trim(), ...o },
-        destination: { placeName: destination.trim(), ...d },
+        origin: {
+          placeName: origin.trim(),
+          latitude: Number(originCoordinates.latitude),
+          longitude: Number(originCoordinates.longitude),
+        },
+        destination: {
+          placeName: destination.trim(),
+          latitude: Number(destinationCoordinates.latitude),
+          longitude: Number(destinationCoordinates.longitude),
+        },
+        geometry: selected.geometry,
+        distanceMeters: selected.distanceMeters,
+        durationSeconds: selected.durationSeconds,
         distanceKm: selected.distanceKm,
         durationMinutes: selected.durationMinutes,
-        profile: ROUTING_PROFILE,
-        routeSignature,
         savedAt: new Date().toISOString(),
       });
 
@@ -279,7 +247,7 @@ export default function PublishRideScreen() {
         params: { suggestedPrice: String(selected.suggestedPrice) },
       });
     } catch (e) {
-      console.error("Route signature error:", e);
+      console.error("Save route error:", e);
       Alert.alert("Could not save route", e.message || "Please try again.");
     } finally {
       setSaving(false);

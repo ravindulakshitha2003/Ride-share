@@ -1,6 +1,6 @@
 // PAGE 2: PublishDetailsScreen (file: Rideinfoscreen.jsx)
-// Reads the route signature from RouteContext, collects ride info,
-// sends everything to the backend and logs the payload on success.
+// Reads the selected route (all points) from RouteContext, collects ride info,
+// and sends everything to the backend.
 import React, { useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -22,13 +22,17 @@ import RideDetails from "../components/map/RideDetails";
 import PublishButton from "../components/map/PublishButton";
 import { useRoute } from "../context/RouteContext";
 
-// TODO: set your real endpoint, then switch SEND_TO_BACKEND to true
-const API_URL = "https://example.com";
-const SEND_TO_BACKEND = false; // false = only print the payload in the console
+// Physical phone: your PC's LAN IP (same Wi-Fi, port 5002 allowed in Windows Firewall).
+// Android emulator: http://10.0.2.2:5002
+const API_URL = "http://192.168.8.159:5002/api/v1/route-matching/publish";
+const SEND_TO_BACKEND = true; // false = only log the payload summary
 
 async function publishRideToBackend(payload) {
   if (!SEND_TO_BACKEND) {
-    console.log("📦 PAYLOAD (not sent):\n" + JSON.stringify(payload, null, 2));
+    console.log(
+      "📦 PAYLOAD (not sent). Route points:",
+      payload.geometry.coordinates.length
+    );
     return { status: "not sent" };
   }
 
@@ -37,8 +41,10 @@ async function publishRideToBackend(payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`Server error ${res.status}`);
-  return { status: res.status };
+
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(json?.message || `Server error ${res.status}`);
+  return json;
 }
 
 // Indigo & Violet theme
@@ -108,7 +114,7 @@ export default function PublishDetailsScreen() {
   async function handlePublish() {
     if (publishing) return;
 
-    if (!routeData?.routeSignature) {
+    if (!routeData?.geometry?.coordinates?.length) {
       return Alert.alert("Missing route", "Please go back and choose a route.");
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(departureDate) || !/^\d{2}:\d{2}$/.test(departureTime)) {
@@ -127,26 +133,24 @@ export default function PublishDetailsScreen() {
     }
 
     const rideData = {
-      routeSignature: routeData.routeSignature,
+      vehicleId: vehicle.id,
       origin: routeData.origin,
       destination: routeData.destination,
-      distanceKm: routeData.distanceKm,
-      durationMinutes: routeData.durationMinutes,
-      profile: routeData.profile,
+      geometry: routeData.geometry, // GeoJSON LineString, all OSRM points
+      distanceMeters: routeData.distanceMeters,
+      durationSeconds: routeData.durationSeconds,
       departureDate,
       departureTime,
       availableSeats: seats,
       pricePerSeat: numericPrice,
-      vehicleId: vehicle.id,
     };
 
     try {
       setPublishing(true);
       const result = await publishRideToBackend(rideData);
+      console.log("✅ Published:", result?.data?.route_id ?? result?.status);
 
-      console.log(`🔏 routeSignature: ${rideData.routeSignature}`);
-
-      Alert.alert("Ride published!", "Payload printed in the console.", [
+      Alert.alert("Ride published!", "Your ride is now live.", [
         {
           text: "OK",
           onPress: () => {
