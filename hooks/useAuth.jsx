@@ -1,4 +1,4 @@
-
+//to access authentication-related information stored in your AuthContext
 import { useContext } from 'react';
 import AuthContext from '../context/authContext';
 

@@ -1,4 +1,4 @@
-
+//manages the user's login session throughout the Share-Ride application
 import {
   createContext,
   useEffect,
