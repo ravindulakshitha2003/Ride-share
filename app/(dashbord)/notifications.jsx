@@ -8,11 +8,10 @@ import {
   StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import NotificationItem from "../components/notifications/NotificationItem";
-import { colors } from "../theme/colors";
-import { useNotifications } from "../context/notificationContext";
+import NotificationItem from "../../components/notifications/NotificationItem";
+import { colors } from "../../theme/colors";
+import { useNotifications } from "../../context/notificationContext";
 
 const isToday = (iso) =>
   new Date(iso).toDateString() === new Date().toDateString();
@@ -24,7 +23,6 @@ const FILTERS = [
 ];
 
 export default function NotificationsScreen() {
-  const router = useRouter();
   const { notifications, unreadCount, refresh, markRead, markAllRead } =
     useNotifications();
 
@@ -67,15 +65,17 @@ export default function NotificationsScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={26} color={colors.secondary} />
-        </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <View style={styles.bellCircle}>
+            <Ionicons name="notifications" size={22} color={colors.primary} />
+          </View>
 
-        <View style={styles.headerText}>
-          <Text style={styles.heading}>Notifications</Text>
-          {unreadCount > 0 && (
-            <Text style={styles.subheading}>{unreadCount} unread</Text>
-          )}
+          <View>
+            <Text style={styles.heading}>Notifications</Text>
+            {unreadCount > 0 && (
+              <Text style={styles.subheading}>{unreadCount} unread</Text>
+            )}
+          </View>
         </View>
 
         <TouchableOpacity onPress={markAllRead} disabled={unreadCount === 0}>
@@ -141,7 +141,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  headerText: { flex: 1, marginLeft: 8 },
+  headerLeft: { flex: 1, flexDirection: "row", alignItems: "center" },
+  bellCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary + "1A",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
   heading: { fontSize: 22, fontWeight: "700", color: colors.secondary },
   subheading: { fontSize: 12, color: colors.primary, marginTop: 1 },
   action: { color: colors.primary, fontSize: 14, fontWeight: "600" },
@@ -159,7 +168,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, color: colors.secondary, fontWeight: "500" },
   chipTextActive: { color: colors.white },
 
-  list: { paddingBottom: 24, flexGrow: 1 },
+  list: { paddingBottom: 110, flexGrow: 1 },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "600",

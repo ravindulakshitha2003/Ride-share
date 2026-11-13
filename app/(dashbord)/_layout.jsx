@@ -2,8 +2,11 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "../../theme/colors";
+import { useNotifications } from "../../context/notificationContext";
 
 export default function DashboardLayout() {
+  const { unreadCount } = useNotifications();
+
   return (
     <Tabs
       screenOptions={{
@@ -74,6 +77,28 @@ export default function DashboardLayout() {
         }}
       />
 
+            <Tabs.Screen
+        name="notifications"
+        options={{
+          title: "Alerts",
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? "notifications" : "notifications-outline"}
+              size={25}
+              color={color}
+            />
+          ),
+          tabBarBadge:
+            unreadCount > 0 ? (unreadCount > 99 ? "99+" : unreadCount) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.error,
+            color: colors.white,
+            fontSize: 10,
+            fontWeight: "700",
+          },
+        }}
+      />
+      
       <Tabs.Screen
         name="profile"
         options={{

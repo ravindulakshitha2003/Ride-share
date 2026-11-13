@@ -2,7 +2,6 @@ import { StyleSheet, Text, View } from 'react-native'
 import React from 'react'
 import { Link } from 'expo-router'
 import { useRouter } from "expo-router";
-import NotificationBell from "../components/notifications/notificationBell";
 
 const index = () => {
 
@@ -10,9 +9,6 @@ const index = () => {
 
   return (
     <View style={{flex : 1 , alignItems : 'center', justifyContent: 'center'}}>
-      <View style={styles.bellWrap}>
-        <NotificationBell />
-      </View> 
 
       <Text>index</Text>
       <Link href={'/login'} > login  </Link>
@@ -29,5 +25,5 @@ const index = () => {
 export default index
 
 const styles = StyleSheet.create({
-   bellWrap: { position: "absolute", top: 50, right: 20 },
+  
 })
