@@ -4,7 +4,8 @@ import * as SecureStore from 'expo-secure-store';
 
 export const TOKEN_KEY = 'access_token';
 
-const BASE_URL = 'http://192.168.1.8:4001';
+//const BASE_URL = 'http://192.168.1.8:4001';
+const BASE_URL = 'http://192.168.1.8:8080';
 
 const client = axios.create({
   baseURL: BASE_URL,
