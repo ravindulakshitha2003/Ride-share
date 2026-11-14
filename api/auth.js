@@ -38,6 +38,7 @@ export async function registerUser(payload) {
     mobile,
     email,
     password,
+    confirmPassword,
     gender,
     dateOfBirth,
     wantsToDrive,
@@ -54,6 +55,7 @@ export async function registerUser(payload) {
   formData.append('mobile', mobile.trim());
   formData.append('email', email.trim().toLowerCase());
   formData.append('password', password);
+  formData.append('confirmPassword', confirmPassword);
   formData.append('role', wantsToDrive ? 'driver' : 'passenger');
 
   if (gender) {

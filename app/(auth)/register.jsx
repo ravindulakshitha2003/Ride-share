@@ -840,6 +840,7 @@ const result = fromCamera
       mobile: form.mobile.trim(),
       email: form.email.trim().toLowerCase(),
       password: form.password,
+      confirmPassword: form.confirmPassword,
       gender: form.gender,
       dateOfBirth: form.dateOfBirth.trim(),
       wantsToDrive: form.wantsToDrive,
