@@ -19,6 +19,7 @@ const _layout = () => {
     }} />
     <Stack.Screen  name='(auth)'  />
      <Stack.Screen  name='(dashbord)'  />
+     <Stack.Screen  name='ride-details'  />
 
     </Stack >
     </RouteProvider>

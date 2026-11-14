@@ -1225,19 +1225,26 @@ export default function ResultsScreen({ route, navigation }) {
   }, []);
 
   const renderItem = useCallback(
-    ({ item }) => (
-      <MemoRouteCard
-        ride={item}
-        onPress={() => {
-          navigation?.navigate('RideDetails', {
-            ride: item,
-            passengers,
-          });
-        }}
-      />
-    ),
-    [navigation, passengers]
-  );
+  ({ item }) => (
+    <MemoRouteCard
+      ride={item}
+      onPress={() =>
+        router.push({
+          pathname: '/ride-details',
+          params: {
+            ride: JSON.stringify({
+              ...item,
+              searchPickup: fromCoords,
+              searchDropoff: toCoords,
+            }),
+            passengers: String(passengers),
+          },
+        })
+      }
+    />
+  ),
+  [router, passengers, fromCoords, toCoords]
+);
 
   /* -------------------------------------------------------
      HEADER
