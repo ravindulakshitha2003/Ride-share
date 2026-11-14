@@ -534,14 +534,13 @@ export default function RegisterScreen() {
         quality: 0.7,
       };
 
-      const result = fromCamera
-        ? await ImagePicker.launchCameraAsync({
-            ...options,
-            cameraType: ImagePicker.CameraType.front,
-          })
-        : await ImagePicker.launchImageLibraryAsync(options);
-
-      if (result.canceled || !result.assets?.length) return;
+      // AFTER (Safe on all Expo SDK versions)
+const result = fromCamera
+  ? await ImagePicker.launchCameraAsync({
+      ...options,
+      cameraType: 'front',
+    })
+  : await ImagePicker.launchImageLibraryAsync(options);
 
       setPhotoUri(result.assets[0].uri);
       setFormError('');

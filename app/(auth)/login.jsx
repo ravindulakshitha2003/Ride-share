@@ -1,6 +1,4 @@
-
-
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import {
   ActivityIndicator,
@@ -20,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { colors } from '../../theme/colors';
 import useAuth from '../../hooks/useAuth';
 import { getErrorMessage } from '../../api/client';
+import { notify, setupNotifications } from '../../utils/notify';
 
 // Where people land after logging in: the dashboard (the Search tab).
 const DASHBOARD_ROUTE = '/';
@@ -95,6 +94,11 @@ export default function Login() {
   const [apiError, setApiError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Ask for notification permission + create the Android channel once.
+  useEffect(() => {
+    setupNotifications();
+  }, []);
+
   // Validate the form before sending a request.
   function validate() {
     const validationErrors = {};
@@ -128,13 +132,22 @@ export default function Login() {
     setSubmitting(true);
 
     try {
-      await login(email.trim().toLowerCase(), password);
+      // Calls POST /api/auth/login on the auth service (port 4001).
+      const profile = await login(email.trim().toLowerCase(), password);
 
-      // Login worked: open the dashboard. "replace" means Back does not return to the login screen.
+      await notify(
+        'Login successful',
+        `Welcome back, ${profile?.name ?? 'rider'}!`
+      );
+
+      // "replace" means Back does not return to the login screen.
       router.replace(DASHBOARD_ROUTE);
     } catch (error) {
+      const message = getErrorMessage(error);
+
       // A failed login stays on this screen and shows the message.
-      setApiError(getErrorMessage(error));
+      setApiError(message);
+      await notify('Login failed', message);
     } finally {
       setSubmitting(false);
     }

@@ -25,7 +25,7 @@ import { setMapPickerSelectionHandler } from '../../context/mapNavigation';
    BACKEND CONFIG
 ======================================================= */
 
-const API_BASE = 'http://192.168.8.159:5002';
+const API_BASE = 'http://192.168.8.159:4002';
 const SEARCH_URL = `${API_BASE}/api/v1/route-matching/search`;
 const TIMEOUT_MS = 15000;
 

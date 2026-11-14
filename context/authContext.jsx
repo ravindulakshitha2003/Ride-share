@@ -1,5 +1,4 @@
-
-import {
+import React, {
   createContext,
   useEffect,
   useState,
@@ -20,13 +19,11 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Restore an existing login session when the app starts.
+  // Restore existing login session when the app starts
   useEffect(() => {
     async function restoreSession() {
       try {
-        const token = await SecureStore.getItemAsync(
-          TOKEN_KEY
-        );
+        const token = await SecureStore.getItemAsync(TOKEN_KEY);
 
         if (token) {
           const profile = await getMe();
@@ -36,10 +33,7 @@ export function AuthProvider({ children }) {
         try {
           await SecureStore.deleteItemAsync(TOKEN_KEY);
         } catch (storageError) {
-          console.error(
-            'Could not clear saved token:',
-            storageError
-          );
+          console.error('Could not clear saved token:', storageError);
         }
 
         setUser(null);
@@ -51,7 +45,7 @@ export function AuthProvider({ children }) {
     restoreSession();
   }, []);
 
-  // Log in and save the authentication token.
+  // Log in and save authentication token
   async function login(email, password) {
     const data = await loginUser({
       email,
@@ -61,18 +55,14 @@ export function AuthProvider({ children }) {
     const token = data.token ?? data.accessToken;
 
     if (!token) {
-      throw new Error(
-        'Login failed: no token received.'
-      );
+      throw new Error('Login failed: no token received.');
     }
 
     await SecureStore.setItemAsync(TOKEN_KEY, token);
 
     try {
-      const profile = data.user ?? await getMe();
-
+      const profile = data.user ?? (await getMe());
       setUser(profile);
-
       return profile;
     } catch (error) {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
@@ -80,12 +70,24 @@ export function AuthProvider({ children }) {
     }
   }
 
-  // Register a new account.
-  async function register(form) {
-    return registerUser(form);
+  // Register a new account
+  // Set autoLogin = true if you want users logged in immediately after registering
+  async function register(form, autoLogin = false) {
+    const data = await registerUser(form);
+
+    const token = data.token ?? data.accessToken;
+
+    if (autoLogin && token) {
+      await SecureStore.setItemAsync(TOKEN_KEY, token);
+      const profile = data.user ?? (await getMe());
+      setUser(profile);
+      return profile;
+    }
+
+    return data;
   }
 
-  // Log out and remove the saved token.
+  // Log out and remove the saved token
   async function logout() {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     setUser(null);
