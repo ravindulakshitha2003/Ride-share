@@ -24,7 +24,7 @@ import { useRoute } from "../context/RouteContext";
 
 // Physical phone: your PC's LAN IP (same Wi-Fi, port 5002 allowed in Windows Firewall).
 // Android emulator: http://10.0.2.2:5002
-const API_URL = "http://192.168.8.159:5002/api/v1/route-matching/publish";
+const API_URL = "http://192.168.8.159:4002/api/v1/route-matching/publish";
 const SEND_TO_BACKEND = true; // false = only log the payload summary
 
 async function publishRideToBackend(payload) {
