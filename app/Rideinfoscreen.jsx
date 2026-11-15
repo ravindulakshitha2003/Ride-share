@@ -1,9 +1,10 @@
 // PAGE 2: PublishDetailsScreen (file: Rideinfoscreen.jsx)
 // Reads the selected route (all points) from RouteContext, collects ride info,
 // and sends everything to the backend.
-import React, { useState } from "react";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useCallback, useState } from "react";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -21,6 +22,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import RideDetails from "../components/map/RideDetails";
 import PublishButton from "../components/map/PublishButton";
 import { useRoute } from "../context/RouteContext";
+import useVehicles from "../hooks/useVehicles";
 
 // Physical phone: your PC's LAN IP (same Wi-Fi, port 5002 allowed in Windows Firewall).
 // Android emulator: http://10.0.2.2:5002
@@ -61,12 +63,6 @@ const THEME = {
   lightPrimary: "#EEECFF",
 };
 
-// Two example vehicles
-const MOCK_VEHICLES = [
-  { id: "v1", name: "Toyota Axio", plate: "CAB-1234", type: "car", seats: 4, hasAC: true },
-  { id: "v2", name: "Suzuki Alto", plate: "KY-5678", type: "car", seats: 3, hasAC: false },
-];
-
 const TYPE_ICON = {
   car: "car-outline",
   van: "bus-outline",
@@ -98,6 +94,14 @@ export default function PublishDetailsScreen() {
   const [vehicle, setVehicle] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
+
+  const { vehicles, loading: vehiclesLoading, error: vehiclesError, fetchVehicles } = useVehicles();
+  
+  useFocusEffect(
+    useCallback(() => {
+      fetchVehicles();
+    }, [fetchVehicles])
+  );
 
   function handleSelectVehicle(v) {
     setVehicle(v);
@@ -251,7 +255,10 @@ export default function PublishDetailsScreen() {
       {/* Vehicle selection modal */}
       <VehicleSheet
         visible={sheetOpen}
-        vehicles={MOCK_VEHICLES}
+        vehicles={vehicles}
+        loading={vehiclesLoading}
+        error={vehiclesError}
+        onRetry={fetchVehicles}
         selectedId={vehicle?.id}
         onClose={() => setSheetOpen(false)}
         onSelect={handleSelectVehicle}
@@ -265,7 +272,7 @@ export default function PublishDetailsScreen() {
 // VEHICLE SELECTION BOTTOM SHEET
 // =====================================
 
-function VehicleSheet({ visible, vehicles, selectedId, onClose, onSelect, onAddVehicle }) {
+function VehicleSheet({ visible, vehicles, loading, error, onRetry, selectedId, onClose, onSelect, onAddVehicle }) {
   return (
     <Modal
       visible={visible}
@@ -303,7 +310,7 @@ function VehicleSheet({ visible, vehicles, selectedId, onClose, onSelect, onAddV
 
           <View style={styles.listLabel}>
             <Text style={styles.listLabelText}>REGISTERED VEHICLES</Text>
-            <Text style={styles.vehicleCount}>{vehicles.length}</Text>
+            <Text style={styles.vehicleCount}>{vehicles ? vehicles.length : 0}</Text>
           </View>
 
           <FlatList
@@ -312,11 +319,26 @@ function VehicleSheet({ visible, vehicles, selectedId, onClose, onSelect, onAddV
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.vehicleList}
             ListEmptyComponent={
-              <View style={styles.emptyList}>
-                <Ionicons name="car-outline" size={40} color={THEME.muted} />
-                <Text style={styles.emptyTitle}>No registered vehicles</Text>
-                <Text style={styles.emptyText}>Add your vehicle to publish a ride.</Text>
-              </View>
+              loading ? (
+                <View style={styles.emptyList}>
+                  <ActivityIndicator color={THEME.primary} />
+                </View>
+              ) : error ? (
+                <View style={styles.emptyList}>
+                  <Ionicons name="alert-circle-outline" size={40} color={THEME.muted} />
+                  <Text style={styles.emptyTitle}>Couldn't load vehicles</Text>
+                  <Text style={styles.emptyText}>{error}</Text>
+                  <TouchableOpacity onPress={onRetry}>
+                    <Text style={[styles.emptyText, { color: THEME.primary, fontWeight: "700" }]}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.emptyList}>
+                  <Ionicons name="car-outline" size={40} color={THEME.muted} />
+                  <Text style={styles.emptyTitle}>No registered vehicles</Text>
+                  <Text style={styles.emptyText}>Add your vehicle to publish a ride.</Text>
+                </View>
+              )
             }
             renderItem={({ item }) => (
               <TouchableOpacity activeOpacity={0.8} onPress={() => onSelect(item)}>
