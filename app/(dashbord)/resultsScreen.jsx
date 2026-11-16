@@ -1,4 +1,3 @@
-
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,9 +16,14 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as SecureStore from 'expo-secure-store';
 
 import PlaceInput from '../../components/map/PlaceInput';
 import { setMapPickerSelectionHandler } from '../../context/mapNavigation';
+import useAuth from '../../hooks/useAuth';
+import { AwardIcon } from 'lucide-react-native';
+
+
 
 /* =======================================================
    BACKEND CONFIG
@@ -28,6 +32,9 @@ import { setMapPickerSelectionHandler } from '../../context/mapNavigation';
 const API_BASE = 'http://192.168.8.159:4002';
 const SEARCH_URL = `${API_BASE}/api/v1/route-matching/search`;
 const TIMEOUT_MS = 15000;
+
+// Change this to the key you used when saving the token
+const TOKEN_KEY = 'token';
 
 const MAX_PICKUP_DISTANCE_M = 5000;
 
@@ -337,6 +344,13 @@ async function searchRidesFromBackend({
   date,
   passengers,
 }) {
+  // Read the saved auth token
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+
+  if (!token) {
+    throw new Error('You are not logged in. Please log in and try again.');
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -345,6 +359,7 @@ async function searchRidesFromBackend({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         pickup: {
@@ -363,6 +378,10 @@ async function searchRidesFromBackend({
     });
 
     const json = await res.json().catch(() => null);
+
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Your session has expired. Please log in again.');
+    }
 
     if (!res.ok) {
       throw new Error(json?.message || `Server error ${res.status}`);
@@ -496,6 +515,8 @@ function RouteCard({ ride, onPress }) {
   const seats = Number(ride.seatsFree);
   const rating = Number(driver.rating);
   const pickupAway = formatDistance(ride.pickupDistanceMeters);
+
+
 
   const vehicleLabel = driver.vehicle
     ? `${driver.vehicle}`
@@ -1225,26 +1246,26 @@ export default function ResultsScreen({ route, navigation }) {
   }, []);
 
   const renderItem = useCallback(
-  ({ item }) => (
-    <MemoRouteCard
-      ride={item}
-      onPress={() =>
-        router.push({
-          pathname: '/ride-details',
-          params: {
-            ride: JSON.stringify({
-              ...item,
-              searchPickup: fromCoords,
-              searchDropoff: toCoords,
-            }),
-            passengers: String(passengers),
-          },
-        })
-      }
-    />
-  ),
-  [router, passengers, fromCoords, toCoords]
-);
+    ({ item }) => (
+      <MemoRouteCard
+        ride={item}
+        onPress={() =>
+          router.push({
+            pathname: '/ride-details',
+            params: {
+              ride: JSON.stringify({
+                ...item,
+                searchPickup: fromCoords,
+                searchDropoff: toCoords,
+              }),
+              passengers: String(passengers),
+            },
+          })
+        }
+      />
+    ),
+    [router, passengers, fromCoords, toCoords]
+  );
 
   /* -------------------------------------------------------
      HEADER

@@ -1,6 +1,6 @@
 // PAGE 2: PublishDetailsScreen (file: Rideinfoscreen.jsx)
 // Reads the selected route (all points) from RouteContext, collects ride info,
-// and sends everything to the backend.
+// and sends everything to the ride service (4002) with the auth token.
 import React, { useCallback, useState } from "react";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import {
@@ -23,10 +23,9 @@ import RideDetails from "../components/map/RideDetails";
 import PublishButton from "../components/map/PublishButton";
 import { useRoute } from "../context/RouteContext";
 import useVehicles from "../hooks/useVehicles";
+import rideClient, { getRideErrorMessage } from "../api/rideClient";
 
-// Physical phone: your PC's LAN IP (same Wi-Fi, port 5002 allowed in Windows Firewall).
-// Android emulator: http://10.0.2.2:5002
-const API_URL = "http://192.168.8.159:4002/api/v1/route-matching/publish";
+const PUBLISH_PATH = "/api/v1/route-matching/publish";
 const SEND_TO_BACKEND = true; // false = only log the payload summary
 
 async function publishRideToBackend(payload) {
@@ -38,15 +37,17 @@ async function publishRideToBackend(payload) {
     return { status: "not sent" };
   }
 
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  try {
+    // Token is added automatically by rideClient (same TOKEN_KEY as the auth client).
+    // Longer timeout because the payload holds every route point.
+    const res = await rideClient.post(PUBLISH_PATH, payload, {
+      timeout: 30000,
+    });
 
-  const json = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(json?.message || `Server error ${res.status}`);
-  return json;
+    return res.data;
+  } catch (e) {
+    throw new Error(getRideErrorMessage(e));
+  }
 }
 
 // Indigo & Violet theme
@@ -95,8 +96,9 @@ export default function PublishDetailsScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
+  // Vehicles come from the auth/vehicle service (4001) via VehicleContext
   const { vehicles, loading: vehiclesLoading, error: vehiclesError, fetchVehicles } = useVehicles();
-  
+
   useFocusEffect(
     useCallback(() => {
       fetchVehicles();

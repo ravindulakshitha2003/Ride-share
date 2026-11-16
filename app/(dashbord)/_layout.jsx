@@ -2,9 +2,13 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "../../theme/colors";
+import { AuthProvider } from "../../context/authContext";
 
 export default function DashboardLayout() {
   return (
+    <AuthProvider>
+
+   
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -111,5 +115,6 @@ export default function DashboardLayout() {
       {/* Hidden from bottom navigation, but still navigable */}
       
     </Tabs>
+  </AuthProvider>
   );
 }

@@ -9,19 +9,20 @@ const _layout = () => {
      <AuthProvider>
       <RouteProvider>
         <VehicleProvider>
-    <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen  name='index' screenOptions={{
-        headerStyle: {
-          backgroundColor: '#f4511e',
-        },
-        headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: 'bold',
-        }
-    }} />
+            <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen  name='index' screenOptions={{
+                headerStyle: {
+                  backgroundColor: '#f4511e',
+                },
+                headerTintColor: '#fff',
+                headerTitleStyle: {
+                  fontWeight: 'bold',
+                }
+            }} />
     <Stack.Screen  name='(auth)'  />
      <Stack.Screen  name='(dashbord)'  />
      <Stack.Screen  name='ride-details'  />
+     <Stack.Screen  name='Rideinfoscreen'  />
 
     </Stack >
     </VehicleProvider>
