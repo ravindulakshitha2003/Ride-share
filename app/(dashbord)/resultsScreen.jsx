@@ -267,6 +267,7 @@ function mapBackendRide(row, date) {
   const arrival = new Date(departure.getTime() + durationMin * 60000);
 
   return {
+    rawRide: row, // Preserves the raw snake_case backend row
     id: row.route_id,
     date,
     from: row.origin_name || 'Origin',
@@ -831,7 +832,7 @@ export default function ResultsScreen({ route }) {
             pathname: '/ride-details',
             params: {
               ride: JSON.stringify({
-                ...item,
+                ...item.rawRide, // Passes the raw snake_case data down to details
                 searchPickup: fromCoords,
                 searchDropoff: toCoords,
               }),
@@ -848,7 +849,7 @@ export default function ResultsScreen({ route }) {
      HEADER WITH CONTROLS & INPUTS
   ------------------------------------------------------- */
   const header = (
-    <SafeAreaView>
+    <SafeAreaView edges={['top']} style={{ backgroundColor: C.background }}>
       <View style={styles.headerWrap}>
         <PressScale
           onPress={() => setSearchOpen((open) => !open)}
@@ -1075,34 +1076,16 @@ export default function ResultsScreen({ route }) {
                     ? `${visibleRides.length} of ${rides.length} rides`
                     : `${rides.length} ${
                         rides.length === 1 ? 'ride' : 'rides'
-                      } found`}
+                      }`}
                 </Text>
               </View>
-
-              <PressScale
-                onPress={() => setFiltersOpen((prev) => !prev)}
-                label={
-                  activeFilterCount > 0
-                    ? `Filters, ${activeFilterCount} active`
-                    : 'Filters'
-                }
-                state={{ expanded: filtersOpen }}
-                style={[
-                  styles.filterButton,
-                  (filtersOpen || activeFilterCount > 0) &&
-                    styles.filterButtonOn,
-                ]}
+              <Pressable 
+                onPress={() => setFiltersOpen(!filtersOpen)} 
+                style={styles.filterToggleBtn}
               >
-                <Icon name="tune-variant" size={18} color={C.primary} />
-                <Text style={styles.filterButtonText}>Filters</Text>
-                {activeFilterCount > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{activeFilterCount}</Text>
-                  </View>
-                )}
-              </PressScale>
+                <Icon name="filter-variant" size={24} color={filtersOpen ? C.primary : C.textMuted} />
+              </Pressable>
             </View>
-
             <FilterPanel
               open={filtersOpen}
               filters={filters}
@@ -1115,181 +1098,98 @@ export default function ResultsScreen({ route }) {
     </SafeAreaView>
   );
 
-  /* -------------------------------------------------------
-     EMPTY & ERROR STATES
-  ------------------------------------------------------- */
-  const filteredOut = rides.length > 0 && visibleRides.length === 0;
-
-  const emptyComponent = loading ? (
-    <View style={styles.empty}>
-      <ActivityIndicator size="large" color={C.primary} />
-      <Text style={styles.loadingText}>Searching for rides...</Text>
-    </View>
-  ) : apiError ? (
-    <View style={styles.empty}>
-      <View
-        style={[
-          styles.emptyIcon,
-          { backgroundColor: C.dangerSoft },
-        ]}
-      >
-        <Icon name="wifi-off" size={44} color={C.danger} />
-      </View>
-      <Text style={styles.emptyTitle}>Couldn't search rides</Text>
-      <Text style={styles.emptyText}>{apiError}</Text>
-      <PressScale
-        onPress={handleSearch}
-        label="Try again"
-        style={styles.button}
-      >
-        <Text style={styles.buttonText}>Try again</Text>
-      </PressScale>
-    </View>
-  ) : (
-    <View style={styles.empty}>
-      <View style={styles.emptyIcon}>
-        <Icon
-          name={
-            !hasSearched
-              ? 'magnify'
-              : filteredOut
-              ? 'filter-off-outline'
-              : 'car-off'
-          }
-          size={44}
-          color={C.primary}
-        />
-      </View>
-      <Text style={styles.emptyTitle}>
-        {!hasSearched
-          ? 'Ready to find a ride?'
-          : filteredOut
-          ? 'No rides match your filters'
-          : 'No rides found'}
-      </Text>
-      <Text style={styles.emptyText}>
-        {!hasSearched
-          ? 'Choose your origin, destination, travel date and passenger count above.'
-          : filteredOut
-          ? 'Try turning off a filter to see more rides.'
-          : 'There are no rides for these places on this date. Try another date or location.'}
-      </Text>
-      {hasSearched ? (
-        <PressScale
-          onPress={
-            filteredOut ? clearFilters : () => setSearchOpen(true)
-          }
-          label={filteredOut ? 'Clear filters' : 'Change search'}
-          style={styles.button}
-        >
-          <Text style={styles.buttonText}>
-            {filteredOut ? 'Clear filters' : 'Change search'}
-          </Text>
-        </PressScale>
-      ) : null}
-    </View>
-  );
-
   return (
-    <LinearGradient
-      colors={[C.background, C.gradientEnd]}
-      style={styles.flex}
-    >
-      <View pointerEvents="none" style={styles.glowA} />
-      <View pointerEvents="none" style={styles.glowB} />
-
+    <View style={styles.container}>
       <FlatList
-        style={styles.flex}
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + 120 },
-        ]}
-        data={hasSearched && !apiError ? visibleRides : []}
-        keyExtractor={(item, index) =>
-          String(item.id ?? item._id ?? `ride-${index}`)
-        }
-        ListHeaderComponent={header}
-        ListEmptyComponent={emptyComponent}
+        data={visibleRides}
+        keyExtractor={(item) => String(item.id)}
         renderItem={renderItem}
+        ListHeaderComponent={header}
+        contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+        ListEmptyComponent={
+          hasSearched && !loading ? (
+            <View style={styles.emptyWrap}>
+              <Icon name="car-off" size={48} color={C.grey} />
+              <Text style={styles.emptyTitle}>No rides found</Text>
+              <Text style={styles.emptyText}>Try changing your date or adjusting the filters.</Text>
+            </View>
+          ) : null
+        }
       />
-    </LinearGradient>
+    </View>
   );
 }
 
 /* =======================================================
-   STYLES
+   STYLESHEETS
 ======================================================= */
 const cardStyles = StyleSheet.create({
   card: {
     backgroundColor: C.white,
     borderRadius: R.lg,
-    padding: SP.xl,
-    marginBottom: SP.lg,
+    padding: SP.lg,
+    marginBottom: SP.md,
     ...SHADOW,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: SP.lg,
   },
   avatarWrap: {
-    width: 56,
-    height: 56,
+    position: 'relative',
+    marginRight: SP.md,
   },
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: C.primary,
-    alignItems: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: C.tint,
     justifyContent: 'center',
+    alignItems: 'center',
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: C.tint,
   },
   avatarImage: {
-    width: 56,
-    height: 56,
+    width: '100%',
+    height: '100%',
   },
   avatarText: {
-    color: C.white,
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '700',
+    color: C.primary,
   },
   verifiedBadge: {
     position: 'absolute',
-    right: -2,
     bottom: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    right: -2,
     backgroundColor: C.success,
+    borderRadius: 10,
+    width: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 2,
     borderColor: C.white,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   driverInfo: {
     flex: 1,
-    marginLeft: SP.md,
-    paddingRight: SP.sm,
   },
   driverName: {
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: C.text,
+    marginBottom: 2,
   },
   ratingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
   },
   ratingText: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: C.text,
-    marginLeft: 3,
+    marginLeft: 4,
   },
   ridesCount: {
     fontSize: 13,
@@ -1299,188 +1199,142 @@ const cardStyles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   price: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: C.primary,
   },
   perSeat: {
     fontSize: 12,
     color: C.textMuted,
-    marginTop: 1,
+    marginTop: 2,
   },
   timeline: {
-    marginTop: SP.xl,
+    marginLeft: 8,
   },
   stop: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   time: {
-    width: 76,
+    width: 65,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: C.text,
   },
-  timeSpacer: {
-    width: 76,
-  },
   dotCol: {
-    width: 24,
+    width: 30,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   dotFrom: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 3,
-    borderColor: C.primary,
-    backgroundColor: C.white,
-  },
-  line: {
-    width: 2,
-    height: 34,
-    backgroundColor: C.line,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: C.textMuted,
   },
   place: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
     color: C.text,
-    marginLeft: SP.sm,
+    fontWeight: '500',
+  },
+  timeSpacer: {
+    width: 65,
+  },
+  line: {
+    width: 2,
+    height: 30,
+    backgroundColor: C.line,
+    marginVertical: 4,
   },
   durationChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: SP.sm,
-    paddingHorizontal: SP.sm + 2,
-    paddingVertical: 3,
+    backgroundColor: C.background,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: R.pill,
-    backgroundColor: C.greySoft,
   },
   durationText: {
     fontSize: 12,
-    fontWeight: '600',
     color: C.textMuted,
     marginLeft: 4,
+    fontWeight: '500',
   },
   durationSpacer: {
-    height: 34,
+    height: 30,
   },
   divider: {
     height: 1,
     backgroundColor: C.border,
-    marginTop: SP.lg,
-    marginBottom: SP.md,
+    marginVertical: SP.md,
   },
   pillRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 8,
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SP.md,
-    height: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: R.pill,
-    marginRight: SP.sm,
-    marginBottom: SP.sm,
-    maxWidth: '100%',
   },
   pillText: {
     fontSize: 13,
-    fontWeight: '700',
-    marginLeft: 5,
-    flexShrink: 1,
+    fontWeight: '600',
+    marginLeft: 4,
   },
 });
 
 const styles = StyleSheet.create({
-  flex: {
+  container: {
     flex: 1,
-  },
-  glowA: {
-    position: 'absolute',
-    top: -80,
-    right: -70,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: C.accent,
-    opacity: 0.28,
-  },
-  glowB: {
-    position: 'absolute',
-    bottom: 120,
-    left: -100,
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: C.primary,
-    opacity: 0.1,
-  },
-  content: {
-    width: '100%',
-    maxWidth: MAX_W,
-    alignSelf: 'center',
-    paddingHorizontal: SP.xl,
-    paddingTop: SP.lg,
-    flexGrow: 1,
+    backgroundColor: C.background,
   },
   headerWrap: {
-    zIndex: 10,
-  },
-  loadingText: {
-    fontSize: 15,
-    color: C.textMuted,
-    marginTop: SP.md,
+    padding: SP.lg,
   },
   searchToggleButton: {
-    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: C.primary,
-    borderRadius: R.md,
-    paddingHorizontal: SP.lg,
-    marginBottom: SP.lg,
+    paddingVertical: SP.sm,
+    paddingHorizontal: SP.md,
+    borderRadius: R.pill,
+    alignSelf: 'center',
+    marginBottom: SP.md,
     ...SHADOW,
   },
   searchToggleText: {
     color: C.white,
-    fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '700',
     marginHorizontal: SP.sm,
-    flex: 1,
-    textAlign: 'center',
   },
   searchCard: {
     backgroundColor: C.white,
     borderRadius: R.lg,
-    padding: SP.xl,
-    marginBottom: SP.xl,
-    zIndex: 10,
+    padding: SP.lg,
     ...SHADOW,
+    marginBottom: SP.lg,
   },
   searchHeadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: SP.xl,
+    marginBottom: SP.lg,
   },
   searchHeadingIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: R.md,
     backgroundColor: C.tint,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: SP.sm,
+    borderRadius: R.pill,
     marginRight: SP.md,
   },
   searchHeadingText: {
     flex: 1,
   },
   searchHeading: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: C.text,
   },
@@ -1490,143 +1344,111 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   inputsWrap: {
-    zIndex: 20,
+    position: 'relative',
+    marginBottom: SP.lg,
   },
   swapBtn: {
-    alignSelf: 'flex-end',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    position: 'absolute',
+    right: 20,
+    top: '50%',
+    marginTop: -16,
+    width: 32,
+    height: 32,
     backgroundColor: C.secondary,
-    alignItems: 'center',
+    borderRadius: 16,
     justifyContent: 'center',
-    marginRight: SP.md,
-    marginVertical: -8,
-    zIndex: 2,
-    borderWidth: 3,
-    borderColor: C.white,
+    alignItems: 'center',
+    zIndex: 10,
   },
   inputGroup: {
     marginBottom: SP.md,
   },
   dateGroup: {
-    marginTop: SP.lg,
-    zIndex: 1,
+    marginBottom: SP.lg,
   },
   inputLabel: {
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
+    fontWeight: '700',
     color: C.textMuted,
-    marginBottom: SP.xs,
+    marginBottom: SP.sm,
+    letterSpacing: 1,
   },
   inputShell: {
-    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: C.background,
     borderWidth: 1,
     borderColor: C.border,
     borderRadius: R.md,
-    backgroundColor: C.background,
-    paddingHorizontal: SP.md,
+    padding: SP.md,
   },
   dateTextContainer: {
     flex: 1,
-    marginLeft: SP.sm,
+    marginLeft: SP.md,
   },
   dateValue: {
+    fontSize: 16,
+    fontWeight: '600',
     color: C.text,
-    fontSize: 15,
-    fontWeight: '700',
   },
   dateHint: {
+    fontSize: 12,
     color: C.textMuted,
-    fontSize: 11,
     marginTop: 2,
   },
   passengerRow: {
-    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: C.border,
-    marginTop: SP.xs,
-    paddingTop: SP.md,
-    zIndex: 1,
+    marginBottom: SP.xl,
   },
   passengerInfo: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingRight: SP.sm,
   },
   passengerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: R.md,
     backgroundColor: C.tint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: SP.sm,
+    padding: SP.sm,
+    borderRadius: R.pill,
+    marginRight: SP.md,
   },
   passengerTitle: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: C.text,
   },
   passengerHint: {
-    fontSize: 11,
+    fontSize: 13,
     color: C.textMuted,
-    marginTop: 2,
   },
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: R.pill,
-    padding: 3,
   },
   stepperButton: {
-    width: 34,
-    height: 34,
-    borderRadius: R.pill,
-    backgroundColor: C.tint,
-    alignItems: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.background,
+    borderWidth: 1,
+    borderColor: C.border,
     justifyContent: 'center',
+    alignItems: 'center',
   },
   passengerCount: {
-    minWidth: 34,
-    textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '700',
     color: C.text,
-  },
-  searchError: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: C.dangerSoft,
-    borderRadius: R.md,
-    padding: SP.md,
-    marginTop: SP.md,
-  },
-  searchErrorText: {
-    flex: 1,
-    color: C.danger,
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: SP.sm,
+    width: 40,
+    textAlign: 'center',
   },
   searchButton: {
-    minHeight: 54,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: C.primary,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: SP.lg,
     borderRadius: R.md,
-    marginTop: SP.lg,
-    ...SHADOW,
   },
   searchButtonDisabled: {
     opacity: 0.7,
@@ -1634,72 +1456,52 @@ const styles = StyleSheet.create({
   searchButtonText: {
     color: C.white,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
     marginLeft: SP.sm,
+  },
+  searchError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.dangerSoft,
+    padding: SP.md,
+    borderRadius: R.md,
+    marginBottom: SP.lg,
+  },
+  searchErrorText: {
+    color: C.danger,
+    fontSize: 14,
+    marginLeft: SP.sm,
+    flex: 1,
   },
   titleRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: SP.md,
+    alignItems: 'center',
+    marginBottom: SP.sm,
   },
   titleText: {
     flex: 1,
-    paddingRight: SP.md,
   },
   resultsTitle: {
     fontSize: 22,
-    lineHeight: 28,
     fontWeight: '800',
     color: C.text,
-    letterSpacing: -0.3,
   },
   resultsCount: {
-    fontSize: 13,
+    fontSize: 14,
     color: C.textMuted,
-    marginTop: 2,
+    marginTop: 4,
   },
-  filterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 44,
-    paddingHorizontal: SP.lg,
-    borderRadius: R.pill,
-    backgroundColor: C.white,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  filterButtonOn: {
-    backgroundColor: C.tint,
-    borderColor: C.primary,
-  },
-  filterButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: C.primary,
-    marginLeft: SP.sm,
-  },
-  badge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: C.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 5,
-    marginLeft: SP.sm,
-  },
-  badgeText: {
-    color: C.white,
-    fontSize: 12,
-    fontWeight: '800',
+  filterToggleBtn: {
+    padding: SP.sm,
   },
   filterCard: {
     backgroundColor: C.white,
-    borderRadius: R.lg,
-    padding: SP.xl,
-    marginBottom: SP.lg,
-    ...SHADOW,
+    borderRadius: R.md,
+    padding: SP.md,
+    marginBottom: SP.md,
+    borderWidth: 1,
+    borderColor: C.border,
   },
   filterLabel: {
     fontSize: 14,
@@ -1708,30 +1510,30 @@ const styles = StyleSheet.create({
     marginBottom: SP.sm,
   },
   filterLabelSpaced: {
-    marginTop: SP.xl,
+    marginTop: SP.md,
   },
   segWrap: {
     flexDirection: 'row',
-    backgroundColor: C.tint,
-    borderRadius: R.pill,
+    backgroundColor: C.background,
+    borderRadius: R.md,
     padding: 4,
   },
   seg: {
     flex: 1,
-    minHeight: 44,
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: R.pill,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: R.sm,
   },
   segOn: {
     backgroundColor: C.primary,
   },
   segText: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: C.secondary,
-    marginLeft: 6,
+    marginLeft: 4,
   },
   segTextOn: {
     color: C.white,
@@ -1739,18 +1541,17 @@ const styles = StyleSheet.create({
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 8,
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 44,
-    paddingHorizontal: SP.lg,
+    paddingHorizontal: SP.md,
+    paddingVertical: 8,
     borderRadius: R.pill,
-    backgroundColor: C.white,
+    backgroundColor: C.background,
     borderWidth: 1,
     borderColor: C.border,
-    marginRight: SP.sm,
-    marginBottom: SP.sm,
   },
   chipOn: {
     backgroundColor: C.tint,
@@ -1758,66 +1559,44 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: C.text,
+    fontWeight: '600',
+    color: C.textMuted,
     marginLeft: 6,
   },
   chipTextOn: {
     color: C.primary,
-    fontWeight: '700',
   },
   clearButton: {
     flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    marginTop: SP.xs,
+    marginTop: SP.lg,
+    paddingVertical: SP.sm,
   },
   clearText: {
     color: C.primary,
-    fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     marginLeft: 6,
   },
-  empty: {
-    alignItems: 'center',
-    marginTop: SP.xxxl,
-    paddingHorizontal: SP.md,
+  listContent: {
+    paddingHorizontal: SP.lg,
+    paddingBottom: SP.xxl,
   },
-  emptyIcon: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: C.tint,
+  emptyWrap: {
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: SP.xxxl * 2,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '700',
     color: C.text,
-    marginTop: SP.xl,
-    textAlign: 'center',
+    marginTop: SP.md,
   },
   emptyText: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
     color: C.textMuted,
     marginTop: SP.sm,
     textAlign: 'center',
-  },
-  button: {
-    height: 54,
-    borderRadius: R.md,
-    backgroundColor: C.text,
-    paddingHorizontal: SP.xxxl,
-    marginTop: SP.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: {
-    color: C.white,
-    fontSize: 16,
-    fontWeight: '700',
   },
 });
