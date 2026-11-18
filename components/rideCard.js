@@ -1,4 +1,3 @@
-
 import React from 'react';
 import {
   StyleSheet,
@@ -22,9 +21,54 @@ export default function RideCard({ ride }) {
 
   // Navigate to Ride Details with the selected ride data.
   const handlePress = () => {
-    // Use the original API response if your search results
-    // have been transformed for displaying the cards.
-    const selectedRide = ride.rawRide || ride;
+    // Combine raw backend row and formatted card fields
+    const raw = ride.rawRide || {};
+    const driverId =
+      ride.driverId ||
+      raw.driver_id ||
+      raw.driverID ||
+      raw.driverId ||
+      ride.driver?.id ||
+      ride.driver?._id;
+
+    const vehicleId =
+      ride.vehicleId ||
+      raw.vehicle_id ||
+      raw.vehicalID ||
+      raw.vehicleId ||
+      raw.vehicalId ||
+      ride.vehicle?.id ||
+      ride.vehicle?._id;
+
+    const selectedRide = {
+      ...raw,
+      ...ride,
+      // Normalized driver and vehicle IDs for the details page
+      driver_id: driverId,
+      driverID: driverId,
+      driverId: driverId,
+      vehicle_id: vehicleId,
+      vehicalID: vehicleId,
+      vehicleId: vehicleId,
+
+      // Location names
+      origin_name: ride.from || raw.origin_name || raw.origin?.name || raw.origin,
+      destination_name: ride.to || raw.destination_name || raw.destination?.name || raw.destination,
+      from: ride.from,
+      to: ride.to,
+
+      // Pricing and seats
+      price_per_seat: ride.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+      pricePerSeat: ride.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+      available_seats: ride.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+      availableSeats: ride.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+
+      // Departure and timing
+      departure_at:
+        raw.departure_at ||
+        raw.departureAt ||
+        (ride.date ? `${ride.date}T${ride.departureTime || '00:00'}` : undefined),
+    };
 
     router.push({
       pathname: '/ride-details',

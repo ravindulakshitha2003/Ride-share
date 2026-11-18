@@ -4,11 +4,13 @@ import { Stack } from 'expo-router';
 import { AuthProvider } from '../context/authContext';
 import { RouteProvider } from "../context/RouteContext";
 import { VehicleProvider } from '../context/VehicleContext';
+import AuthGate from '../components/AuthGate';
 const _layout = () => {
   return (
      <AuthProvider>
       <RouteProvider>
         <VehicleProvider>
+          <AuthGate>
             <Stack screenOptions={{ headerShown: false }}>
                 <Stack.Screen  name='index' screenOptions={{
                 headerStyle: {
@@ -25,6 +27,7 @@ const _layout = () => {
      <Stack.Screen  name='Rideinfoscreen'  />
 
     </Stack >
+    </AuthGate>
     </VehicleProvider>
     </RouteProvider>
     </AuthProvider>

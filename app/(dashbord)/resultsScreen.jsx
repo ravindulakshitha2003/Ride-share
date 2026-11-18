@@ -258,26 +258,68 @@ const MOCK_DRIVERS = [
 
 function mapBackendRide(row, date) {
   const profile =
-    MOCK_DRIVERS[hashString(String(row.route_id || '0')) % MOCK_DRIVERS.length];
+    MOCK_DRIVERS[hashString(String(row.route_id || row.id || '0')) % MOCK_DRIVERS.length];
 
-  const departure = new Date(row.departure_at || Date.now());
-  const durationMin = Math.round(
-    Number(row.full_route_duration_seconds || 0) / 60
+  // Parse departure time robustly from various possible fields
+  const rawDeparture =
+    row.departure_at ||
+    row.departureAt ||
+    (row.departureDate && row.departureTime
+      ? `${row.departureDate}T${row.departureTime}`
+      : null);
+  const departure = rawDeparture ? new Date(rawDeparture) : new Date();
+
+  // Parse duration in minutes
+  const durationSec = Number(
+    row.full_route_duration_seconds ?? row.durationSeconds ?? 0
   );
-  const arrival = new Date(departure.getTime() + durationMin * 60000);
+  const durationMin = durationSec > 0
+    ? Math.round(durationSec / 60)
+    : Number(row.durationMin || 0);
+
+  const arrival = new Date(departure.getTime() + (durationMin || 60) * 60000);
+
+  // Extract driver and vehicle IDs from all possible conventions
+  const driverId =
+    row.driver_id ||
+    row.driverId ||
+    row.driverID ||
+    row.driver?._id ||
+    row.driver?.id ||
+    null;
+
+  const vehicleId =
+    row.vehicle_id ||
+    row.vehicleId ||
+    row.vehicalID ||
+    row.vehicalId ||
+    row.vehicle?._id ||
+    row.vehicle?.id ||
+    null;
+
+  // Extract origin and destination place names
+  const fromName =
+    row.origin_name ||
+    (typeof row.origin === 'string' ? row.origin : row.origin?.placeName || row.origin?.name) ||
+    'Origin';
+
+  const toName =
+    row.destination_name ||
+    (typeof row.destination === 'string' ? row.destination : row.destination?.placeName || row.destination?.name) ||
+    'Destination';
 
   return {
     rawRide: row, // Preserves the raw snake_case backend row
-    id: row.route_id,
+    id: row.route_id || row.id,
     date,
-    from: row.origin_name || 'Origin',
-    to: row.destination_name || 'Destination',
+    from: fromName,
+    to: toName,
     departureTime: formatTime(departure),
     arrivalTime: formatTime(arrival),
     durationMin,
-    pricePerSeat: Number(row.price_per_seat || 0),
+    pricePerSeat: Number(row.price_per_seat ?? row.pricePerSeat ?? 0),
     currency: row.currency || 'Rs',
-    seatsFree: Number(row.available_seats || 1),
+    seatsFree: Number(row.available_seats ?? row.availableSeats ?? 1),
 
     vehicleType: row.vehicle_type || profile.vehicleType,
     driver: {
@@ -290,14 +332,14 @@ function mapBackendRide(row, date) {
       hasAC: row.has_ac != null ? Boolean(row.has_ac) : profile.driver.hasAC,
     },
 
-    driverId: row.driver_id,
-    vehicleId: row.vehicle_id,
-    pickupDistanceMeters: Number(row.pickup_distance_meters || 0),
-    dropoffDistanceMeters: Number(row.dropoff_distance_meters || 0),
-    rideDistanceMeters: Number(row.ride_distance_meters || 0),
-    suggestedPickup: row.suggested_pickup,
-    suggestedDropoff: row.suggested_dropoff,
-    matchedRouteSegment: row.matched_route_segment,
+    driverId,
+    vehicleId,
+    pickupDistanceMeters: Number(row.pickup_distance_meters ?? row.pickupDistanceMeters ?? 0),
+    dropoffDistanceMeters: Number(row.dropoff_distance_meters ?? row.dropoffDistanceMeters ?? 0),
+    rideDistanceMeters: Number(row.ride_distance_meters ?? row.rideDistanceMeters ?? row.distanceMeters ?? 0),
+    suggestedPickup: row.suggested_pickup || row.suggestedPickup || row.origin,
+    suggestedDropoff: row.suggested_dropoff || row.suggestedDropoff || row.destination,
+    matchedRouteSegment: row.matched_route_segment || row.matchedRouteSegment || row.geometry,
   };
 }
 
@@ -827,19 +869,87 @@ export default function ResultsScreen({ route }) {
     ({ item }) => (
       <MemoRouteCard
         ride={item}
-        onPress={() =>
+        onPress={() => {
+          const raw = item.rawRide || {};
+          const driverId =
+            item.driverId ||
+            raw.driver_id ||
+            raw.driverID ||
+            raw.driverId ||
+            item.driver?.id ||
+            item.driver?._id;
+
+          const vehicleId =
+            item.vehicleId ||
+            raw.vehicle_id ||
+            raw.vehicalID ||
+            raw.vehicleId ||
+            raw.vehicalId ||
+            item.vehicle?.id ||
+            item.vehicle?._id;
+
           router.push({
             pathname: '/ride-details',
             params: {
               ride: JSON.stringify({
-                ...item.rawRide, // Passes the raw snake_case data down to details
+                ...raw,
+                ...item,
+                // Normalized driver and vehicle IDs
+                driver_id: driverId,
+                driverID: driverId,
+                driverId: driverId,
+                vehicle_id: vehicleId,
+                vehicalID: vehicleId,
+                vehicleId: vehicleId,
+
+                // Normalized route endpoints
+                origin_name: item.from || raw.origin_name || raw.origin?.name || raw.origin,
+                destination_name: item.to || raw.destination_name || raw.destination?.name || raw.destination,
+                from: item.from,
+                to: item.to,
+
+                // Normalized pricing and seat availability
+                price_per_seat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+                pricePerSeat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+                available_seats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+                availableSeats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+                seatsFree: item.seatsFree,
+
+                // Normalized departures and timings
+                departure_at:
+                  raw.departure_at ||
+                  raw.departureAt ||
+                  (item.date ? `${item.date}T${item.departureTime || '00:00'}` : undefined),
+                departureTime: item.departureTime,
+                arrivalTime: item.arrivalTime,
+                date: item.date,
+
+                // Metrics
+                full_route_distance_meters:
+                  raw.full_route_distance_meters ?? raw.distanceMeters ?? item.rideDistanceMeters,
+                full_route_duration_seconds:
+                  raw.full_route_duration_seconds ??
+                  raw.durationSeconds ??
+                  (item.durationMin ? item.durationMin * 60 : undefined),
+                ride_distance_meters:
+                  raw.ride_distance_meters ?? item.rideDistanceMeters ?? raw.distanceMeters,
+                pickup_distance_meters: item.pickupDistanceMeters ?? raw.pickup_distance_meters,
+                dropoff_distance_meters: item.dropoffDistanceMeters ?? raw.dropoff_distance_meters,
+
+                // Map markers and route geometry
+                suggested_pickup: item.suggestedPickup || raw.suggested_pickup || fromCoords,
+                suggested_dropoff: item.suggestedDropoff || raw.suggested_dropoff || toCoords,
+                matched_route_segment:
+                  item.matchedRouteSegment || raw.matched_route_segment || raw.geometry,
+
+                // Search coordinates passed as fallback
                 searchPickup: fromCoords,
                 searchDropoff: toCoords,
               }),
               passengers: String(passengers),
             },
-          })
-        }
+          });
+        }}
       />
     ),
     [router, passengers, fromCoords, toCoords]
@@ -849,7 +959,7 @@ export default function ResultsScreen({ route }) {
      HEADER WITH CONTROLS & INPUTS
   ------------------------------------------------------- */
   const header = (
-    <SafeAreaView edges={['top']} style={{ backgroundColor: C.background }}>
+    <SafeAreaView>
       <View style={styles.headerWrap}>
         <PressScale
           onPress={() => setSearchOpen((open) => !open)}
@@ -1076,16 +1186,34 @@ export default function ResultsScreen({ route }) {
                     ? `${visibleRides.length} of ${rides.length} rides`
                     : `${rides.length} ${
                         rides.length === 1 ? 'ride' : 'rides'
-                      }`}
+                      } found`}
                 </Text>
               </View>
-              <Pressable 
-                onPress={() => setFiltersOpen(!filtersOpen)} 
-                style={styles.filterToggleBtn}
+
+              <PressScale
+                onPress={() => setFiltersOpen((prev) => !prev)}
+                label={
+                  activeFilterCount > 0
+                    ? `Filters, ${activeFilterCount} active`
+                    : 'Filters'
+                }
+                state={{ expanded: filtersOpen }}
+                style={[
+                  styles.filterButton,
+                  (filtersOpen || activeFilterCount > 0) &&
+                    styles.filterButtonOn,
+                ]}
               >
-                <Icon name="filter-variant" size={24} color={filtersOpen ? C.primary : C.textMuted} />
-              </Pressable>
+                <Icon name="tune-variant" size={18} color={C.primary} />
+                <Text style={styles.filterButtonText}>Filters</Text>
+                {activeFilterCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{activeFilterCount}</Text>
+                  </View>
+                )}
+              </PressScale>
             </View>
+
             <FilterPanel
               open={filtersOpen}
               filters={filters}
@@ -1098,98 +1226,181 @@ export default function ResultsScreen({ route }) {
     </SafeAreaView>
   );
 
-  return (
-    <View style={styles.container}>
-      <FlatList
-        data={visibleRides}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={renderItem}
-        ListHeaderComponent={header}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          hasSearched && !loading ? (
-            <View style={styles.emptyWrap}>
-              <Icon name="car-off" size={48} color={C.grey} />
-              <Text style={styles.emptyTitle}>No rides found</Text>
-              <Text style={styles.emptyText}>Try changing your date or adjusting the filters.</Text>
-            </View>
-          ) : null
-        }
-      />
+  /* -------------------------------------------------------
+     EMPTY & ERROR STATES
+  ------------------------------------------------------- */
+  const filteredOut = rides.length > 0 && visibleRides.length === 0;
+
+  const emptyComponent = loading ? (
+    <View style={styles.empty}>
+      <ActivityIndicator size="large" color={C.primary} />
+      <Text style={styles.loadingText}>Searching for rides...</Text>
     </View>
+  ) : apiError ? (
+    <View style={styles.empty}>
+      <View
+        style={[
+          styles.emptyIcon,
+          { backgroundColor: C.dangerSoft },
+        ]}
+      >
+        <Icon name="wifi-off" size={44} color={C.danger} />
+      </View>
+      <Text style={styles.emptyTitle}>Couldn't search rides</Text>
+      <Text style={styles.emptyText}>{apiError}</Text>
+      <PressScale
+        onPress={handleSearch}
+        label="Try again"
+        style={styles.button}
+      >
+        <Text style={styles.buttonText}>Try again</Text>
+      </PressScale>
+    </View>
+  ) : (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <Icon
+          name={
+            !hasSearched
+              ? 'magnify'
+              : filteredOut
+              ? 'filter-off-outline'
+              : 'car-off'
+          }
+          size={44}
+          color={C.primary}
+        />
+      </View>
+      <Text style={styles.emptyTitle}>
+        {!hasSearched
+          ? 'Ready to find a ride?'
+          : filteredOut
+          ? 'No rides match your filters'
+          : 'No rides found'}
+      </Text>
+      <Text style={styles.emptyText}>
+        {!hasSearched
+          ? 'Choose your origin, destination, travel date and passenger count above.'
+          : filteredOut
+          ? 'Try turning off a filter to see more rides.'
+          : 'There are no rides for these places on this date. Try another date or location.'}
+      </Text>
+      {hasSearched ? (
+        <PressScale
+          onPress={
+            filteredOut ? clearFilters : () => setSearchOpen(true)
+          }
+          label={filteredOut ? 'Clear filters' : 'Change search'}
+          style={styles.button}
+        >
+          <Text style={styles.buttonText}>
+            {filteredOut ? 'Clear filters' : 'Change search'}
+          </Text>
+        </PressScale>
+      ) : null}
+    </View>
+  );
+
+  return (
+    <LinearGradient
+      colors={[C.background, C.gradientEnd]}
+      style={styles.flex}
+    >
+      <View pointerEvents="none" style={styles.glowA} />
+      <View pointerEvents="none" style={styles.glowB} />
+
+      <FlatList
+        style={styles.flex}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + 120 },
+        ]}
+        data={hasSearched && !apiError ? visibleRides : []}
+        keyExtractor={(item, index) =>
+          String(item.id ?? item._id ?? `ride-${index}`)
+        }
+        ListHeaderComponent={header}
+        ListEmptyComponent={emptyComponent}
+        renderItem={renderItem}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      />
+    </LinearGradient>
   );
 }
 
 /* =======================================================
-   STYLESHEETS
+   STYLES
 ======================================================= */
 const cardStyles = StyleSheet.create({
   card: {
     backgroundColor: C.white,
     borderRadius: R.lg,
-    padding: SP.lg,
-    marginBottom: SP.md,
+    padding: SP.xl,
+    marginBottom: SP.lg,
     ...SHADOW,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: SP.lg,
   },
   avatarWrap: {
-    position: 'relative',
-    marginRight: SP.md,
+    width: 56,
+    height: 56,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: C.tint,
-    justifyContent: 'center',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: C.primary,
     alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: C.tint,
   },
   avatarImage: {
-    width: '100%',
-    height: '100%',
+    width: 56,
+    height: 56,
   },
   avatarText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: C.primary,
+    color: C.white,
+    fontSize: 22,
+    fontWeight: '800',
   },
   verifiedBadge: {
     position: 'absolute',
-    bottom: -2,
     right: -2,
-    backgroundColor: C.success,
+    bottom: -2,
+    width: 20,
+    height: 20,
     borderRadius: 10,
-    width: 18,
-    height: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: C.success,
     borderWidth: 2,
     borderColor: C.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   driverInfo: {
     flex: 1,
+    marginLeft: SP.md,
+    paddingRight: SP.sm,
   },
   driverName: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
     color: C.text,
-    marginBottom: 2,
   },
   ratingRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 3,
   },
   ratingText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: C.text,
-    marginLeft: 4,
+    marginLeft: 3,
   },
   ridesCount: {
     fontSize: 13,
@@ -1199,142 +1410,188 @@ const cardStyles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   price: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
     color: C.primary,
   },
   perSeat: {
     fontSize: 12,
     color: C.textMuted,
-    marginTop: 2,
+    marginTop: 1,
   },
   timeline: {
-    marginLeft: 8,
+    marginTop: SP.xl,
   },
   stop: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   time: {
-    width: 65,
+    width: 76,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: C.text,
-  },
-  dotCol: {
-    width: 30,
-    alignItems: 'center',
-  },
-  dotFrom: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: C.textMuted,
-  },
-  place: {
-    flex: 1,
-    fontSize: 15,
-    color: C.text,
-    fontWeight: '500',
   },
   timeSpacer: {
-    width: 65,
+    width: 76,
+  },
+  dotCol: {
+    width: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotFrom: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 3,
+    borderColor: C.primary,
+    backgroundColor: C.white,
   },
   line: {
     width: 2,
-    height: 30,
+    height: 34,
     backgroundColor: C.line,
-    marginVertical: 4,
+  },
+  place: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: C.text,
+    marginLeft: SP.sm,
   },
   durationChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.background,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    marginLeft: SP.sm,
+    paddingHorizontal: SP.sm + 2,
+    paddingVertical: 3,
     borderRadius: R.pill,
+    backgroundColor: C.greySoft,
   },
   durationText: {
     fontSize: 12,
+    fontWeight: '600',
     color: C.textMuted,
     marginLeft: 4,
-    fontWeight: '500',
   },
   durationSpacer: {
-    height: 30,
+    height: 34,
   },
   divider: {
     height: 1,
     backgroundColor: C.border,
-    marginVertical: SP.md,
+    marginTop: SP.lg,
+    marginBottom: SP.md,
   },
   pillRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: SP.md,
+    height: 32,
     borderRadius: R.pill,
+    marginRight: SP.sm,
+    marginBottom: SP.sm,
+    maxWidth: '100%',
   },
   pillText: {
     fontSize: 13,
-    fontWeight: '600',
-    marginLeft: 4,
+    fontWeight: '700',
+    marginLeft: 5,
+    flexShrink: 1,
   },
 });
 
 const styles = StyleSheet.create({
-  container: {
+  flex: {
     flex: 1,
-    backgroundColor: C.background,
+  },
+  glowA: {
+    position: 'absolute',
+    top: -80,
+    right: -70,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: C.accent,
+    opacity: 0.28,
+  },
+  glowB: {
+    position: 'absolute',
+    bottom: 120,
+    left: -100,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: C.primary,
+    opacity: 0.1,
+  },
+  content: {
+    width: '100%',
+    maxWidth: MAX_W,
+    alignSelf: 'center',
+    paddingHorizontal: SP.xl,
+    paddingTop: SP.lg,
+    flexGrow: 1,
   },
   headerWrap: {
-    padding: SP.lg,
+    zIndex: 10,
+  },
+  loadingText: {
+    fontSize: 15,
+    color: C.textMuted,
+    marginTop: SP.md,
   },
   searchToggleButton: {
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: C.primary,
-    paddingVertical: SP.sm,
-    paddingHorizontal: SP.md,
-    borderRadius: R.pill,
-    alignSelf: 'center',
-    marginBottom: SP.md,
+    borderRadius: R.md,
+    paddingHorizontal: SP.lg,
+    marginBottom: SP.lg,
     ...SHADOW,
   },
   searchToggleText: {
     color: C.white,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     marginHorizontal: SP.sm,
+    flex: 1,
+    textAlign: 'center',
   },
   searchCard: {
     backgroundColor: C.white,
     borderRadius: R.lg,
-    padding: SP.lg,
+    padding: SP.xl,
+    marginBottom: SP.xl,
+    zIndex: 10,
     ...SHADOW,
-    marginBottom: SP.lg,
   },
   searchHeadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: SP.lg,
+    marginBottom: SP.xl,
   },
   searchHeadingIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: R.md,
     backgroundColor: C.tint,
-    padding: SP.sm,
-    borderRadius: R.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: SP.md,
   },
   searchHeadingText: {
     flex: 1,
   },
   searchHeading: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
     color: C.text,
   },
@@ -1344,111 +1601,143 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   inputsWrap: {
-    position: 'relative',
-    marginBottom: SP.lg,
+    zIndex: 20,
   },
   swapBtn: {
-    position: 'absolute',
-    right: 20,
-    top: '50%',
-    marginTop: -16,
-    width: 32,
-    height: 32,
+    alignSelf: 'flex-end',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: C.secondary,
-    borderRadius: 16,
-    justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
+    justifyContent: 'center',
+    marginRight: SP.md,
+    marginVertical: -8,
+    zIndex: 2,
+    borderWidth: 3,
+    borderColor: C.white,
   },
   inputGroup: {
     marginBottom: SP.md,
   },
   dateGroup: {
-    marginBottom: SP.lg,
+    marginTop: SP.lg,
+    zIndex: 1,
   },
   inputLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
+    letterSpacing: 0.8,
     color: C.textMuted,
-    marginBottom: SP.sm,
-    letterSpacing: 1,
+    marginBottom: SP.xs,
   },
   inputShell: {
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.background,
     borderWidth: 1,
     borderColor: C.border,
     borderRadius: R.md,
-    padding: SP.md,
+    backgroundColor: C.background,
+    paddingHorizontal: SP.md,
   },
   dateTextContainer: {
     flex: 1,
-    marginLeft: SP.md,
+    marginLeft: SP.sm,
   },
   dateValue: {
-    fontSize: 16,
-    fontWeight: '600',
     color: C.text,
+    fontSize: 15,
+    fontWeight: '700',
   },
   dateHint: {
-    fontSize: 12,
     color: C.textMuted,
+    fontSize: 11,
     marginTop: 2,
   },
   passengerRow: {
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: SP.xl,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+    marginTop: SP.xs,
+    paddingTop: SP.md,
+    zIndex: 1,
   },
   passengerInfo: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    paddingRight: SP.sm,
   },
   passengerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: R.md,
     backgroundColor: C.tint,
-    padding: SP.sm,
-    borderRadius: R.pill,
-    marginRight: SP.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SP.sm,
   },
   passengerTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '800',
     color: C.text,
   },
   passengerHint: {
-    fontSize: 13,
+    fontSize: 11,
     color: C.textMuted,
+    marginTop: 2,
   },
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  stepperButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: C.background,
     borderWidth: 1,
     borderColor: C.border,
-    justifyContent: 'center',
+    borderRadius: R.pill,
+    padding: 3,
+  },
+  stepperButton: {
+    width: 34,
+    height: 34,
+    borderRadius: R.pill,
+    backgroundColor: C.tint,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   passengerCount: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: C.text,
-    width: 40,
+    minWidth: 34,
     textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '800',
+    color: C.text,
+  },
+  searchError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.dangerSoft,
+    borderRadius: R.md,
+    padding: SP.md,
+    marginTop: SP.md,
+  },
+  searchErrorText: {
+    flex: 1,
+    color: C.danger,
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: SP.sm,
   },
   searchButton: {
-    backgroundColor: C.primary,
+    minHeight: 54,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: SP.lg,
+    justifyContent: 'center',
+    backgroundColor: C.primary,
     borderRadius: R.md,
+    marginTop: SP.lg,
+    ...SHADOW,
   },
   searchButtonDisabled: {
     opacity: 0.7,
@@ -1456,52 +1745,72 @@ const styles = StyleSheet.create({
   searchButtonText: {
     color: C.white,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     marginLeft: SP.sm,
-  },
-  searchError: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: C.dangerSoft,
-    padding: SP.md,
-    borderRadius: R.md,
-    marginBottom: SP.lg,
-  },
-  searchErrorText: {
-    color: C.danger,
-    fontSize: 14,
-    marginLeft: SP.sm,
-    flex: 1,
   },
   titleRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: SP.sm,
+    justifyContent: 'space-between',
+    marginBottom: SP.md,
   },
   titleText: {
     flex: 1,
+    paddingRight: SP.md,
   },
   resultsTitle: {
     fontSize: 22,
+    lineHeight: 28,
     fontWeight: '800',
     color: C.text,
+    letterSpacing: -0.3,
   },
   resultsCount: {
-    fontSize: 14,
+    fontSize: 13,
     color: C.textMuted,
-    marginTop: 4,
+    marginTop: 2,
   },
-  filterToggleBtn: {
-    padding: SP.sm,
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 44,
+    paddingHorizontal: SP.lg,
+    borderRadius: R.pill,
+    backgroundColor: C.white,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  filterButtonOn: {
+    backgroundColor: C.tint,
+    borderColor: C.primary,
+  },
+  filterButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: C.primary,
+    marginLeft: SP.sm,
+  },
+  badge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    marginLeft: SP.sm,
+  },
+  badgeText: {
+    color: C.white,
+    fontSize: 12,
+    fontWeight: '800',
   },
   filterCard: {
     backgroundColor: C.white,
-    borderRadius: R.md,
-    padding: SP.md,
-    marginBottom: SP.md,
-    borderWidth: 1,
-    borderColor: C.border,
+    borderRadius: R.lg,
+    padding: SP.xl,
+    marginBottom: SP.lg,
+    ...SHADOW,
   },
   filterLabel: {
     fontSize: 14,
@@ -1510,30 +1819,30 @@ const styles = StyleSheet.create({
     marginBottom: SP.sm,
   },
   filterLabelSpaced: {
-    marginTop: SP.md,
+    marginTop: SP.xl,
   },
   segWrap: {
     flexDirection: 'row',
-    backgroundColor: C.background,
-    borderRadius: R.md,
+    backgroundColor: C.tint,
+    borderRadius: R.pill,
     padding: 4,
   },
   seg: {
     flex: 1,
+    minHeight: 44,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 8,
-    borderRadius: R.sm,
+    justifyContent: 'center',
+    borderRadius: R.pill,
   },
   segOn: {
     backgroundColor: C.primary,
   },
   segText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: C.secondary,
-    marginLeft: 4,
+    marginLeft: 6,
   },
   segTextOn: {
     color: C.white,
@@ -1541,17 +1850,18 @@ const styles = StyleSheet.create({
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SP.md,
-    paddingVertical: 8,
+    minHeight: 44,
+    paddingHorizontal: SP.lg,
     borderRadius: R.pill,
-    backgroundColor: C.background,
+    backgroundColor: C.white,
     borderWidth: 1,
     borderColor: C.border,
+    marginRight: SP.sm,
+    marginBottom: SP.sm,
   },
   chipOn: {
     backgroundColor: C.tint,
@@ -1559,44 +1869,66 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: C.textMuted,
+    fontWeight: '500',
+    color: C.text,
     marginLeft: 6,
   },
   chipTextOn: {
     color: C.primary,
+    fontWeight: '700',
   },
   clearButton: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: SP.lg,
-    paddingVertical: SP.sm,
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    marginTop: SP.xs,
   },
   clearText: {
     color: C.primary,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     marginLeft: 6,
   },
-  listContent: {
-    paddingHorizontal: SP.lg,
-    paddingBottom: SP.xxl,
+  empty: {
+    alignItems: 'center',
+    marginTop: SP.xxxl,
+    paddingHorizontal: SP.md,
   },
-  emptyWrap: {
+  emptyIcon: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: C.tint,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: SP.xxxl * 2,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: C.text,
-    marginTop: SP.md,
+    marginTop: SP.xl,
+    textAlign: 'center',
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: 15,
+    lineHeight: 22,
     color: C.textMuted,
     marginTop: SP.sm,
     textAlign: 'center',
+  },
+  button: {
+    height: 54,
+    borderRadius: R.md,
+    backgroundColor: C.text,
+    paddingHorizontal: SP.xxxl,
+    marginTop: SP.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: {
+    color: C.white,
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

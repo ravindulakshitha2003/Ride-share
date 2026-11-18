@@ -1,196 +1,455 @@
-import { StyleSheet, Dimensions } from 'react-native';
 
-const { width } = Dimensions.get('window');
+import { StyleSheet } from 'react-native';
+import { colors } from './colors';
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F5F7FA',
+    backgroundColor: colors.background,
   },
+
+  /* HEADER */
 
   header: {
     height: 58,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.white,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 18,
     borderBottomWidth: 1,
-    borderBottomColor: '#E9EDF2',
+    borderBottomColor: colors.border,
   },
 
   headerBack: {
-    width: 35,
-    height: 35,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    alignItems: 'center',
     justifyContent: 'center',
   },
 
   headerTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#172B4D',
+    fontWeight: '800',
+    color: colors.text,
   },
 
   headerPlaceholder: {
-    width: 35,
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+
+  /* SCROLL */
 
   scrollContent: {
     padding: 16,
-    paddingBottom: 30,
+    paddingBottom: 125,
   },
 
+  /* CARDS */
+
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    backgroundColor: colors.white,
+    borderRadius: 18,
     padding: 17,
     marginBottom: 15,
     borderWidth: 1,
-    borderColor: '#EDF0F4',
+    borderColor: colors.border,
   },
+
+  heroCard: {
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    padding: 19,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+
+  /* PRICE */
 
   priceHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 22,
+    justifyContent: 'space-between',
+    marginBottom: 24,
   },
 
   priceLabel: {
-    fontSize: 13,
-    color: '#788697',
-    marginBottom: 5,
+    color: '#817D9C',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+
+  priceLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 
   price: {
-    fontSize: 23,
-    fontWeight: '800',
-    color: '#0F4C81',
+    fontSize: 27,
+    fontWeight: '900',
+    color: colors.primary,
   },
 
   seatsBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EAF3FA',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    backgroundColor: '#F0EDFF',
     borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
 
   seatsText: {
-    color: '#0F4C81',
+    color: colors.primary,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
     marginLeft: 5,
   },
 
+  /* JOURNEY */
+
   journeyContainer: {
     flexDirection: 'row',
-    minHeight: 105,
+    minHeight: 112,
   },
 
   journeyIconColumn: {
-    width: 24,
+    width: 25,
     alignItems: 'center',
     paddingTop: 5,
   },
 
   originDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#0F4C81',
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: colors.primary,
+    borderWidth: 3,
+    borderColor: '#E8E3FF',
   },
 
   journeyLine: {
     width: 2,
-    height: 45,
-    backgroundColor: '#CCD6E0',
+    height: 48,
+    backgroundColor: colors.border,
   },
 
   destinationDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#F5A623',
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: colors.accent,
+    borderWidth: 3,
+    borderColor: '#FAE9FF',
   },
 
   journeyTextColumn: {
     flex: 1,
-    paddingLeft: 10,
+    paddingLeft: 11,
   },
 
   locationLabel: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#8A99A8',
+    fontWeight: '800',
+    color: '#9692AD',
     letterSpacing: 1,
-    marginBottom: 4,
+    marginBottom: 5,
   },
 
   locationName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#172B4D',
+    fontSize: 17,
+    fontWeight: '800',
+    color: colors.text,
   },
 
   destinationBlock: {
     marginTop: 27,
   },
 
+  /* DEPARTURE */
+
   departureRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#EDF0F4',
-    paddingTop: 14,
-    marginTop: 13,
+    borderTopColor: '#EFEDF8',
+    paddingTop: 15,
+    marginTop: 15,
+  },
+
+  departureIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#F0EDFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  departureLabel: {
+    color: '#9692AD',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
 
   departureText: {
-    color: '#526477',
+    color: colors.text,
     fontSize: 13,
-    marginLeft: 9,
-    fontWeight: '500',
+    fontWeight: '700',
+    marginTop: 4,
+  },
+
+  /* SECTION HEADERS */
+
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+
+  sectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: '#F0EDFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  sectionHeadingText: {
+    flex: 1,
   },
 
   sectionTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#172B4D',
-    marginBottom: 16,
+    color: colors.text,
   },
+
+  sectionSubtitle: {
+    fontSize: 11,
+    color: '#9692AD',
+    marginTop: 4,
+  },
+
+  /* DETAIL ROWS */
 
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingVertical: 11,
+    alignItems: 'center',
+    paddingVertical: 13,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F2F5',
+    borderBottomColor: '#F0EEF8',
   },
 
-  detailLabel: {
-    color: '#788697',
-    fontSize: 13,
+  detailLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
     marginRight: 10,
   },
 
+  detailLabel: {
+    color: '#817D9C',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 9,
+    flexShrink: 1,
+  },
+
   detailValue: {
-    color: '#172B4D',
-    fontSize: 13,
-    fontWeight: '700',
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '800',
     textAlign: 'right',
     flex: 1,
   },
 
+  /* DRIVER */
+
+  driverInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  driverIcon: {
+    width: 55,
+    height: 55,
+    borderRadius: 18,
+    backgroundColor: '#F0EDFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  driverText: {
+    flex: 1,
+    marginLeft: 13,
+  },
+
+  driverName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+  },
+
+  verificationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#F0EDFF',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginTop: 7,
+  },
+
+  driverStatus: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '800',
+    marginLeft: 5,
+    textTransform: 'capitalize',
+  },
+
+  /* VEHICLE */
+
+  vehicleImage: {
+    width: '100%',
+    height: 175,
+    borderRadius: 14,
+    backgroundColor: colors.background,
+    marginBottom: 13,
+  },
+
+  vehicleImageFallback: {
+    width: '100%',
+    height: 145,
+    borderRadius: 14,
+    backgroundColor: '#F0EDFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 13,
+  },
+
+  vehicleName: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: colors.text,
+    marginBottom: 9,
+  },
+
+  vehicleTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#F0EDFF',
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 20,
+  },
+
+  vehicleTypeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.primary,
+    marginLeft: 6,
+  },
+
+  vehicleQuickInfo: {
+    flexDirection: 'row',
+    marginTop: 15,
+    paddingTop: 13,
+    borderTopWidth: 1,
+    borderTopColor: '#F0EEF8',
+  },
+
+  quickInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 22,
+  },
+
+  quickInfoText: {
+    fontSize: 12,
+    color: colors.text,
+    fontWeight: '700',
+    marginLeft: 7,
+  },
+
+  descriptionContainer: {
+    paddingTop: 17,
+    marginTop: 5,
+  },
+
+  vehicleDescription: {
+    fontSize: 13,
+    lineHeight: 21,
+    color: '#625E7D',
+    marginTop: 10,
+  },
+
+  /* EXPAND BUTTON */
+
+  expandButton: {
+    backgroundColor: '#EFECFF',
+    borderWidth: 1,
+    borderColor: '#D9D2FF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  expandButtonLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+
+  expandIcon: {
+    width: 39,
+    height: 39,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  expandTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.secondary,
+  },
+
+  expandSubtitle: {
+    fontSize: 10,
+    color: '#77718F',
+    marginTop: 4,
+  },
+
+  /* MAP TABS */
+
   locationTabs: {
     flexDirection: 'row',
-    backgroundColor: '#F0F3F6',
-    borderRadius: 10,
+    backgroundColor: '#F0EEF8',
+    borderRadius: 12,
     padding: 4,
-    marginBottom: 13,
+    marginBottom: 14,
   },
 
   locationTab: {
@@ -199,30 +458,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: 9,
   },
 
   activeLocationTab: {
-    backgroundColor: '#0F4C81',
+    backgroundColor: colors.primary,
   },
 
   locationTabText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#526477',
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.secondary,
     marginLeft: 6,
   },
 
   activeLocationTabText: {
-    color: '#FFFFFF',
+    color: colors.white,
   },
+
+  /* MAP */
 
   mapContainer: {
     width: '100%',
-    height: 230,
-    borderRadius: 12,
+    height: 220,
+    borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: '#E9EEF3',
+    backgroundColor: '#EFECFF',
   },
 
   map: {
@@ -238,55 +499,19 @@ const styles = StyleSheet.create({
   },
 
   fallbackText: {
-    color: '#788697',
-    fontSize: 13,
+    color: '#817D9C',
+    fontSize: 12,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 9,
   },
 
   mapCaption: {
-    color: '#788697',
+    color: '#817D9C',
     fontSize: 11,
     marginTop: 10,
   },
 
-  mapDescription: {
-    color: '#788697',
-    fontSize: 12,
-    marginTop: -8,
-    marginBottom: 13,
-  },
-
-  driverInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  driverIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#EAF3FA',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  driverText: {
-    marginLeft: 13,
-  },
-
-  driverName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#172B4D',
-  },
-
-  driverStatus: {
-    fontSize: 12,
-    color: '#788697',
-    marginTop: 5,
-    textTransform: 'capitalize',
-  },
+  /* LOADING */
 
   loadingContainer: {
     minHeight: 65,
@@ -296,100 +521,129 @@ const styles = StyleSheet.create({
   },
 
   loadingText: {
-    color: '#788697',
-    fontSize: 13,
+    color: '#817D9C',
+    fontSize: 12,
     marginLeft: 10,
   },
 
-  vehicleImage: {
-    width: '100%',
-    height: 180,
-    borderRadius: 12,
-    backgroundColor: '#E9EEF3',
-    marginBottom: 14,
-  },
-
-  vehicleImageFallback: {
-    width: '100%',
-    height: 150,
-    borderRadius: 12,
-    backgroundColor: '#F0F3F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-  },
-
-  vehicleName: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#172B4D',
-    marginBottom: 7,
-  },
-
-  descriptionContainer: {
-    paddingTop: 14,
-  },
-
-  vehicleDescription: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: '#526477',
-    marginTop: 7,
-  },
+  /* ERRORS */
 
   errorNotice: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF1F0',
-    padding: 13,
-    borderRadius: 10,
+    backgroundColor: '#FEF0F0',
+    padding: 14,
+    borderRadius: 12,
     marginBottom: 15,
   },
 
   errorNoticeText: {
-    color: '#B54745',
+    color: colors.error,
     fontSize: 12,
     flex: 1,
-    marginLeft: 8,
+    marginLeft: 9,
   },
 
   errorScreen: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F5F7FA',
+    backgroundColor: colors.background,
     padding: 25,
   },
 
   errorTitle: {
     fontSize: 19,
-    fontWeight: '800',
-    color: '#172B4D',
+    fontWeight: '900',
+    color: colors.text,
     marginTop: 14,
   },
 
   errorMessage: {
     fontSize: 13,
-    color: '#788697',
+    color: '#817D9C',
     textAlign: 'center',
     marginTop: 8,
   },
 
   backButton: {
-    backgroundColor: '#0F4C81',
+    backgroundColor: colors.primary,
     paddingHorizontal: 25,
-    paddingVertical: 12,
-    borderRadius: 9,
+    paddingVertical: 13,
+    borderRadius: 12,
     marginTop: 20,
   },
 
   backButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
+    color: colors.white,
+    fontWeight: '800',
+  },
+
+  /* FIXED BOOKING BAR */
+
+  bookingContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.white,
+    paddingHorizontal: 18,
+    paddingTop: 13,
+    paddingBottom: 25,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  bookingPrice: {
+    flex: 1,
+  },
+
+  bookingPriceLabel: {
+    color: '#9692AD',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+  },
+
+  bookingPriceValue: {
+    color: colors.primary,
+    fontSize: 19,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+
+  bookButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 19,
+    paddingVertical: 15,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 175,
+    elevation: 3,
+    shadowColor: colors.secondary,
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+
+  disabledBookButton: {
+    backgroundColor: '#9692AD',
+  },
+
+  bookButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '900',
+    marginRight: 9,
   },
 
   bottomSpace: {
-    height: 20,
+    height: 10,
   },
 });
 
