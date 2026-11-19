@@ -3,24 +3,32 @@ import React from 'react'
 import { Stack } from 'expo-router';
 import { AuthProvider } from '../context/authContext';
 import { RouteProvider } from "../context/RouteContext";
+import { VehicleProvider } from '../context/VehicleContext';
+import AuthGate from '../components/AuthGate';
 const _layout = () => {
   return (
      <AuthProvider>
       <RouteProvider>
-    <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen  name='index' screenOptions={{
-        headerStyle: {
-          backgroundColor: '#f4511e',
-        },
-        headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: 'bold',
-        }
-    }} />
+        <VehicleProvider>
+          <AuthGate>
+            <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen  name='index' screenOptions={{
+                headerStyle: {
+                  backgroundColor: '#f4511e',
+                },
+                headerTintColor: '#fff',
+                headerTitleStyle: {
+                  fontWeight: 'bold',
+                }
+            }} />
     <Stack.Screen  name='(auth)'  />
      <Stack.Screen  name='(dashbord)'  />
+     <Stack.Screen  name='ride-details'  />
+     <Stack.Screen  name='Rideinfoscreen'  />
 
     </Stack >
+    </AuthGate>
+    </VehicleProvider>
     </RouteProvider>
     </AuthProvider>
   )

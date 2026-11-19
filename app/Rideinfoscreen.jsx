@@ -1,9 +1,10 @@
 // PAGE 2: PublishDetailsScreen (file: Rideinfoscreen.jsx)
-// Reads the selected route (all points) from RouteContext, collects ride info,
-// and sends everything to the backend.
-import React, { useState } from "react";
-import { useLocalSearchParams, useRouter } from "expo-router";
+// Reads the selected route from RouteContext and saves ride details there.
+// Final publishing is handled by RidePreferencesScreen.jsx.
+import React, { useCallback, useState } from "react";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -19,33 +20,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import RideDetails from "../components/map/RideDetails";
-import PublishButton from "../components/map/PublishButton";
 import { useRoute } from "../context/RouteContext";
-
-// Physical phone: your PC's LAN IP (same Wi-Fi, port 5002 allowed in Windows Firewall).
-// Android emulator: http://10.0.2.2:5002
-const API_URL = "http://192.168.8.159:4002/api/v1/route-matching/publish";
-const SEND_TO_BACKEND = true; // false = only log the payload summary
-
-async function publishRideToBackend(payload) {
-  if (!SEND_TO_BACKEND) {
-    console.log(
-      "📦 PAYLOAD (not sent). Route points:",
-      payload.geometry.coordinates.length
-    );
-    return { status: "not sent" };
-  }
-
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  const json = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(json?.message || `Server error ${res.status}`);
-  return json;
-}
+import useVehicles from "../hooks/useVehicles";
 
 // Indigo & Violet theme
 const THEME = {
@@ -60,12 +36,6 @@ const THEME = {
   overlay: "rgba(36, 33, 59, 0.55)",
   lightPrimary: "#EEECFF",
 };
-
-// Two example vehicles
-const MOCK_VEHICLES = [
-  { id: "v1", name: "Toyota Axio", plate: "CAB-1234", type: "car", seats: 4, hasAC: true },
-  { id: "v2", name: "Suzuki Alto", plate: "KY-5678", type: "car", seats: 3, hasAC: false },
-];
 
 const TYPE_ICON = {
   car: "car-outline",
@@ -88,16 +58,28 @@ function getDefaultDeparture() {
 export default function PublishDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { routeData, clearRoute } = useRoute();
+  const { routeData, rideDetails, saveRideDetails } = useRoute();
 
   const [defaultDeparture] = useState(getDefaultDeparture);
-  const [departureDate, setDepartureDate] = useState(defaultDeparture.date);
-  const [departureTime, setDepartureTime] = useState(defaultDeparture.time);
-  const [seats, setSeats] = useState(3);
-  const [price, setPrice] = useState(params.suggestedPrice || "");
-  const [vehicle, setVehicle] = useState(null);
+  const [departureDate, setDepartureDate] = useState(() => rideDetails?.departureDate ?? defaultDeparture.date);
+  const [departureTime, setDepartureTime] = useState(() => rideDetails?.departureTime ?? defaultDeparture.time);
+  const [seats, setSeats] = useState(() => rideDetails?.availableSeats ?? 3);
+  const [price, setPrice] = useState(() =>
+    rideDetails?.pricePerSeat != null
+      ? String(rideDetails.pricePerSeat)
+      : params.suggestedPrice || ""
+  );
+  const [vehicle, setVehicle] = useState(() => rideDetails?.vehicle ?? null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [publishing, setPublishing] = useState(false);
+
+  // Vehicles come from the auth/vehicle service (4001) via VehicleContext
+  const { vehicles, loading: vehiclesLoading, error: vehiclesError, fetchVehicles } = useVehicles();
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchVehicles();
+    }, [fetchVehicles])
+  );
 
   function handleSelectVehicle(v) {
     setVehicle(v);
@@ -111,15 +93,18 @@ export default function PublishDetailsScreen() {
     router.push("./Addvehical");
   }
 
-  async function handlePublish() {
-    if (publishing) return;
-
+  function handleContinue() {
     if (!routeData?.geometry?.coordinates?.length) {
       return Alert.alert("Missing route", "Please go back and choose a route.");
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(departureDate) || !/^\d{2}:\d{2}$/.test(departureTime)) {
+
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(departureDate) ||
+      !/^\d{2}:\d{2}$/.test(departureTime)
+    ) {
       return Alert.alert("Invalid date or time", "Use YYYY-MM-DD and HH:MM.");
     }
+
     if (!Number.isInteger(seats) || seats < 1 || seats > 8) {
       return Alert.alert("Invalid seats", "Choose between 1 and 8 seats.");
     }
@@ -128,43 +113,21 @@ export default function PublishDetailsScreen() {
     if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
       return Alert.alert("Invalid price", "Enter a price greater than zero.");
     }
-    if (!vehicle) {
+
+    if (!vehicle?.id) {
       return Alert.alert("No vehicle", "Please choose a vehicle.");
     }
 
-    const rideData = {
+    saveRideDetails({
+      vehicle,
       vehicleId: vehicle.id,
-      origin: routeData.origin,
-      destination: routeData.destination,
-      geometry: routeData.geometry, // GeoJSON LineString, all OSRM points
-      distanceMeters: routeData.distanceMeters,
-      durationSeconds: routeData.durationSeconds,
       departureDate,
       departureTime,
       availableSeats: seats,
       pricePerSeat: numericPrice,
-    };
+    });
 
-    try {
-      setPublishing(true);
-      const result = await publishRideToBackend(rideData);
-      console.log("✅ Published:", result?.data?.route_id ?? result?.status);
-
-      Alert.alert("Ride published!", "Your ride is now live.", [
-        {
-          text: "OK",
-          onPress: () => {
-            clearRoute();
-            router.replace("/rideDetailsScreen");
-          },
-        },
-      ]);
-    } catch (error) {
-      console.error("Publish ride error:", error);
-      Alert.alert("Could not publish ride", error.message);
-    } finally {
-      setPublishing(false);
-    }
+    router.push("/RidePreferencesScreen");
   }
 
   return (
@@ -244,14 +207,25 @@ export default function PublishDetailsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Publish */}
-        <PublishButton onPress={handlePublish} />
+        {/* Continue to ride preferences */}
+        <TouchableOpacity
+          style={styles.vehicleButton}
+          onPress={handleContinue}
+        >
+          <Text style={styles.vehicleButtonText}>
+            Continue to ride preferences
+          </Text>
+          <Ionicons name="arrow-forward" size={19} color={THEME.white} />
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Vehicle selection modal */}
       <VehicleSheet
         visible={sheetOpen}
-        vehicles={MOCK_VEHICLES}
+        vehicles={vehicles}
+        loading={vehiclesLoading}
+        error={vehiclesError}
+        onRetry={fetchVehicles}
         selectedId={vehicle?.id}
         onClose={() => setSheetOpen(false)}
         onSelect={handleSelectVehicle}
@@ -265,7 +239,7 @@ export default function PublishDetailsScreen() {
 // VEHICLE SELECTION BOTTOM SHEET
 // =====================================
 
-function VehicleSheet({ visible, vehicles, selectedId, onClose, onSelect, onAddVehicle }) {
+function VehicleSheet({ visible, vehicles, loading, error, onRetry, selectedId, onClose, onSelect, onAddVehicle }) {
   return (
     <Modal
       visible={visible}
@@ -303,7 +277,7 @@ function VehicleSheet({ visible, vehicles, selectedId, onClose, onSelect, onAddV
 
           <View style={styles.listLabel}>
             <Text style={styles.listLabelText}>REGISTERED VEHICLES</Text>
-            <Text style={styles.vehicleCount}>{vehicles.length}</Text>
+            <Text style={styles.vehicleCount}>{vehicles ? vehicles.length : 0}</Text>
           </View>
 
           <FlatList
@@ -312,11 +286,26 @@ function VehicleSheet({ visible, vehicles, selectedId, onClose, onSelect, onAddV
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.vehicleList}
             ListEmptyComponent={
-              <View style={styles.emptyList}>
-                <Ionicons name="car-outline" size={40} color={THEME.muted} />
-                <Text style={styles.emptyTitle}>No registered vehicles</Text>
-                <Text style={styles.emptyText}>Add your vehicle to publish a ride.</Text>
-              </View>
+              loading ? (
+                <View style={styles.emptyList}>
+                  <ActivityIndicator color={THEME.primary} />
+                </View>
+              ) : error ? (
+                <View style={styles.emptyList}>
+                  <Ionicons name="alert-circle-outline" size={40} color={THEME.muted} />
+                  <Text style={styles.emptyTitle}>Couldn't load vehicles</Text>
+                  <Text style={styles.emptyText}>{error}</Text>
+                  <TouchableOpacity onPress={onRetry}>
+                    <Text style={[styles.emptyText, { color: THEME.primary, fontWeight: "700" }]}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.emptyList}>
+                  <Ionicons name="car-outline" size={40} color={THEME.muted} />
+                  <Text style={styles.emptyTitle}>No registered vehicles</Text>
+                  <Text style={styles.emptyText}>Add your vehicle to publish a ride.</Text>
+                </View>
+              )
             }
             renderItem={({ item }) => (
               <TouchableOpacity activeOpacity={0.8} onPress={() => onSelect(item)}>
