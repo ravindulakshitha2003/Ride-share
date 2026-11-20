@@ -11,10 +11,14 @@ import {
 
 // Photon = free OpenStreetMap search. No API key.
 const PHOTON_URL = "https://photon.komoot.io/api/";
-// Sri Lanka bounding box: minLng,minLat,maxLng,maxLat. Remove "bbox" in the URL to search worldwide.
+// Sri Lanka bounding box: minLng,minLat,maxLng,maxLat
 const SL_BBOX = "79.4,5.8,82.0,9.95";
+// Sri Lanka centre for location bias
+const SL_LAT = 7.8;
+const SL_LON = 80.7;
 const MIN_CHARS = 3;
 const DEBOUNCE_MS = 400;
+const FETCH_TIMEOUT_MS = 8000;
 
 // Photon feature -> { id, name, detail, latitude, longitude }
 function toPlace(feature) {
@@ -91,9 +95,14 @@ export default function PlaceInput({
     timer.current = setTimeout(async () => {
       const c = new AbortController();
       controller.current = c;
+
+      // Auto-abort after FETCH_TIMEOUT_MS so the spinner doesn't hang forever
+      const timeout = setTimeout(() => c.abort(), FETCH_TIMEOUT_MS);
+
       setLoading(true);
       try {
-        const url = `${PHOTON_URL}?q=${encodeURIComponent(q)}&limit=6&lang=en&bbox=${SL_BBOX}`;
+        const url = `${PHOTON_URL}?q=${encodeURIComponent(q)}&limit=6&lang=en&bbox=${SL_BBOX}&lat=${SL_LAT}&lon=${SL_LON}&zoom=8`;
+        console.log("[PlaceInput] fetching:", url);
         const res = await fetch(url, { signal: c.signal });
         if (!res.ok) throw new Error(`Search error ${res.status}`);
         const data = await res.json();
@@ -103,16 +112,20 @@ export default function PlaceInput({
           .map(toPlace)
           .filter((p) => (seen.has(p.id) ? false : seen.add(p.id)));
 
+        console.log("[PlaceInput]", q, "→", places.length, "results");
         cache.current[q] = places;
         setResults(places);
         setNoResults(places.length === 0);
       } catch (e) {
         if (e.name !== "AbortError") {
           console.log("[PlaceInput] search failed:", e.message);
-          setResults([]);
-          setNoResults(false);
+        } else {
+          console.log("[PlaceInput] request aborted/timed-out for:", q);
         }
+        setResults([]);
+        setNoResults(true);
       } finally {
+        clearTimeout(timeout);
         if (!c.signal.aborted) setLoading(false);
       }
     }, DEBOUNCE_MS);
@@ -147,7 +160,7 @@ export default function PlaceInput({
             value={value}
             onChangeText={handleChange}
             onFocus={() => setFocused(true)}
-            onBlur={() => setTimeout(() => setFocused(false), 200)}
+            onBlur={() => setTimeout(() => setFocused(false), 600)}
             placeholder="Search a place"
             placeholderTextColor="#9AA7B4"
             autoCorrect={false}
