@@ -1,13 +1,12 @@
-
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   Animated,
   Easing,
   FlatList,
-  Pressable,
+  Image,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -20,26 +19,11 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 
 import PlaceInput from '../../components/map/PlaceInput';
 import { setMapPickerSelectionHandler } from '../../context/mapNavigation';
-
-/* =======================================================
-   BACKEND CONFIG
-======================================================= */
-
-const API_BASE = 'http://192.168.8.159:4002';
-const SEARCH_URL = `${API_BASE}/api/v1/route-matching/search`;
-const TIMEOUT_MS = 15000;
-
-const MAX_PICKUP_DISTANCE_M = 5000;
-
-const DEFAULT_MAP_CENTER = {
-  latitude: 6.9271,
-  longitude: 79.8612,
-};
+import { searchAvailableRides } from '../../api/rideService';
 
 /* =======================================================
    DESIGN TOKENS
 ======================================================= */
-
 const C = {
   primary: '#5B4BDB',
   secondary: '#312E81',
@@ -64,18 +48,13 @@ const C = {
 };
 
 const R = { sm: 12, md: 16, lg: 24, xl: 28, pill: 999 };
-
-const SP = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  xxl: 24,
-  xxxl: 32,
-};
-
+const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 };
 const MAX_W = 560;
+
+const DEFAULT_MAP_CENTER = {
+  latitude: 6.9271,
+  longitude: 79.8612,
+};
 
 const SHADOW = Platform.select({
   ios: {
@@ -89,9 +68,8 @@ const SHADOW = Platform.select({
 });
 
 /* =======================================================
-   PRESS ANIMATION
+   ANIMATION WRAPPER
 ======================================================= */
-
 function PressScale({
   onPress,
   disabled,
@@ -130,9 +108,8 @@ function PressScale({
 }
 
 /* =======================================================
-   HELPERS
+   HELPERS & FORMATTERS
 ======================================================= */
-
 const VEHICLE_ICONS = {
   Car: 'car',
   Van: 'van-utility',
@@ -153,7 +130,6 @@ function formatPrice(amount) {
   if (amount === undefined || amount === null || Number.isNaN(Number(amount))) {
     return '-';
   }
-
   return `Rs ${String(Math.round(Number(amount))).replace(
     /\B(?=(\d{3})+(?!\d))/g,
     ','
@@ -162,23 +138,17 @@ function formatPrice(amount) {
 
 function formatDuration(minutes) {
   const total = Number(minutes);
-
   if (!total || total < 1) return '';
-
   const h = Math.floor(total / 60);
   const m = total % 60;
-
   if (h === 0) return `${m}m`;
-
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
 function formatDistance(meters) {
   const m = Number(meters);
-
   if (!Number.isFinite(m)) return '';
   if (m < 1000) return `${Math.round(m)} m`;
-
   return `${(m / 1000).toFixed(1)} km`;
 }
 
@@ -190,29 +160,20 @@ function formatTime(date) {
   let h = date.getHours();
   const m = date.getMinutes();
   const suffix = h >= 12 ? 'PM' : 'AM';
-
   h = h % 12 || 12;
-
   return `${pad(h)}:${pad(m)} ${suffix}`;
 }
 
 function tomorrowISO() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// Create a date using local calendar values.
-// Avoid toISOString() because it converts the date to UTC.
 function parseLocalDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return null;
-  }
-
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const [year, month, day] = value.split('-').map(Number);
   const parsed = new Date(year, month - 1, day);
-
   if (
     parsed.getFullYear() !== year ||
     parsed.getMonth() !== month - 1 ||
@@ -220,7 +181,6 @@ function parseLocalDate(value) {
   ) {
     return null;
   }
-
   return parsed;
 }
 
@@ -230,17 +190,13 @@ function isValidDate(value) {
 
 function getTodayLocalDate() {
   const today = new Date();
-
   today.setHours(0, 0, 0, 0);
-
   return today;
 }
 
 function isPastDate(value) {
   const selected = parseLocalDate(value);
-
   if (!selected) return false;
-
   return selected < getTodayLocalDate();
 }
 
@@ -252,18 +208,15 @@ function formatDateForBackend(date) {
 
 function hashString(value) {
   let h = 0;
-
   for (let i = 0; i < value.length; i += 1) {
     h = (h * 31 + value.charCodeAt(i)) >>> 0;
   }
-
   return h;
 }
 
 /* =======================================================
-   MOCK DRIVER PROFILES
+   BACKEND RESPONSE NORMALIZER
 ======================================================= */
-
 const MOCK_DRIVERS = [
   {
     vehicleType: 'Car',
@@ -301,143 +254,98 @@ const MOCK_DRIVERS = [
       hasAC: true,
     },
   },
-  {
-    vehicleType: 'Car',
-    driver: {
-      name: 'Sampath Jayasinghe',
-      photoUrl: 'https://i.pravatar.cc/150?img=15',
-      verified: false,
-      rating: 4.2,
-      ridesCount: 14,
-      vehicle: 'Suzuki Alto',
-      hasAC: false,
-    },
-  },
-  {
-    vehicleType: 'Van',
-    driver: {
-      name: 'Ruwan Bandara',
-      photoUrl: 'https://i.pravatar.cc/150?img=60',
-      verified: true,
-      rating: 4.4,
-      ridesCount: 63,
-      vehicle: 'Nissan Caravan',
-      hasAC: false,
-    },
-  },
 ];
-
-/* =======================================================
-   BACKEND CALL + MAPPING
-======================================================= */
-
-async function searchRidesFromBackend({
-  pickup,
-  dropoff,
-  date,
-  passengers,
-}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  try {
-    const res = await fetch(SEARCH_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        pickup: {
-          latitude: pickup.latitude,
-          longitude: pickup.longitude,
-        },
-        dropoff: {
-          latitude: dropoff.latitude,
-          longitude: dropoff.longitude,
-        },
-        departureDate: date,
-        seats: passengers,
-        maxDistanceMeters: MAX_PICKUP_DISTANCE_M,
-      }),
-      signal: controller.signal,
-    });
-
-    const json = await res.json().catch(() => null);
-
-    if (!res.ok) {
-      throw new Error(json?.message || `Server error ${res.status}`);
-    }
-
-    if (!Array.isArray(json?.data)) {
-      throw new Error('Invalid ride list received from server.');
-    }
-
-    return json.data;
-  } catch (e) {
-    if (e.name === 'AbortError') {
-      throw new Error(
-        'The request timed out. Check your connection and try again.'
-      );
-    }
-
-    if (e.message === 'Network request failed') {
-      throw new Error(
-        'Cannot reach the server. Check your Wi-Fi and that the backend is running.'
-      );
-    }
-
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 function mapBackendRide(row, date) {
   const profile =
-    MOCK_DRIVERS[
-      hashString(String(row.route_id)) % MOCK_DRIVERS.length
-    ];
+    MOCK_DRIVERS[hashString(String(row.route_id || row.id || '0')) % MOCK_DRIVERS.length];
 
-  const departure = new Date(row.departure_at);
+  // Parse departure time robustly from various possible fields
+  const rawDeparture =
+    row.departure_at ||
+    row.departureAt ||
+    (row.departureDate && row.departureTime
+      ? `${row.departureDate}T${row.departureTime}`
+      : null);
+  const departure = rawDeparture ? new Date(rawDeparture) : new Date();
 
-  const durationMin = Math.round(
-    Number(row.full_route_duration_seconds) / 60
+  // Parse duration in minutes
+  const durationSec = Number(
+    row.full_route_duration_seconds ?? row.durationSeconds ?? 0
   );
+  const durationMin = durationSec > 0
+    ? Math.round(durationSec / 60)
+    : Number(row.durationMin || 0);
 
-  const arrival = new Date(
-    departure.getTime() + durationMin * 60000
-  );
+  const arrival = new Date(departure.getTime() + (durationMin || 60) * 60000);
+
+  // Extract driver and vehicle IDs from all possible conventions
+  const driverId =
+    row.driver_id ||
+    row.driverId ||
+    row.driverID ||
+    row.driver?._id ||
+    row.driver?.id ||
+    null;
+
+  const vehicleId =
+    row.vehicle_id ||
+    row.vehicleId ||
+    row.vehicalID ||
+    row.vehicalId ||
+    row.vehicle?._id ||
+    row.vehicle?.id ||
+    null;
+
+  // Extract origin and destination place names
+  const fromName =
+    row.origin_name ||
+    (typeof row.origin === 'string' ? row.origin : row.origin?.placeName || row.origin?.name) ||
+    'Origin';
+
+  const toName =
+    row.destination_name ||
+    (typeof row.destination === 'string' ? row.destination : row.destination?.placeName || row.destination?.name) ||
+    'Destination';
 
   return {
-    id: row.route_id,
+    rawRide: row, // Preserves the raw snake_case backend row
+    id: row.route_id || row.id,
     date,
-    from: row.origin_name,
-    to: row.destination_name,
+    from: fromName,
+    to: toName,
     departureTime: formatTime(departure),
     arrivalTime: formatTime(arrival),
     durationMin,
-    pricePerSeat: Number(row.price_per_seat),
-    currency: row.currency,
-    seatsFree: Number(row.available_seats),
+    pricePerSeat: Number(row.price_per_seat ?? row.pricePerSeat ?? 0),
+    currency: row.currency || 'Rs',
+    seatsFree: Number(row.available_seats ?? row.availableSeats ?? 1),
 
-    vehicleType: profile.vehicleType,
-    driver: { ...profile.driver },
+    vehicleType: row.vehicle_type || profile.vehicleType,
+    driver: {
+      name: row.driver_name || profile.driver.name,
+      photoUrl: row.driver_photo_url || profile.driver.photoUrl,
+      verified: row.is_driver_verified ?? profile.driver.verified,
+      rating: Number(row.driver_rating || profile.driver.rating),
+      ridesCount: Number(row.driver_rides_count || profile.driver.ridesCount),
+      vehicle: row.vehicle_model || profile.driver.vehicle,
+      hasAC: row.has_ac != null ? Boolean(row.has_ac) : profile.driver.hasAC,
+    },
 
-    driverId: row.driver_id,
-    vehicleId: row.vehicle_id,
-    pickupDistanceMeters: Number(row.pickup_distance_meters),
-    dropoffDistanceMeters: Number(row.dropoff_distance_meters),
-    rideDistanceMeters: Number(row.ride_distance_meters),
-    suggestedPickup: row.suggested_pickup,
-    suggestedDropoff: row.suggested_dropoff,
-    matchedRouteSegment: row.matched_route_segment,
+    driverId,
+    vehicleId,
+    pickupDistanceMeters: Number(row.pickup_distance_meters ?? row.pickupDistanceMeters ?? 0),
+    dropoffDistanceMeters: Number(row.dropoff_distance_meters ?? row.dropoffDistanceMeters ?? 0),
+    rideDistanceMeters: Number(row.ride_distance_meters ?? row.rideDistanceMeters ?? row.distanceMeters ?? 0),
+    suggestedPickup: row.suggested_pickup || row.suggestedPickup || row.origin,
+    suggestedDropoff: row.suggested_dropoff || row.suggestedDropoff || row.destination,
+    matchedRouteSegment: row.matched_route_segment || row.matchedRouteSegment || row.geometry,
   };
 }
 
 /* =======================================================
-   RIDE CARD
+   CARD & AVATAR SUBCOMPONENTS
 ======================================================= */
-
 function Avatar({ name, uri, verified }) {
   const [failed, setFailed] = useState(false);
   const initial = (name || '?').charAt(0).toUpperCase();
@@ -473,7 +381,7 @@ const TONES = {
 };
 
 function InfoPill({ icon, label, tone = 'violet' }) {
-  const colors = TONES[tone];
+  const colors = TONES[tone] || TONES.violet;
 
   return (
     <View style={[cardStyles.pill, { backgroundColor: colors.bg }]}>
@@ -497,9 +405,7 @@ function RouteCard({ ride, onPress }) {
   const rating = Number(driver.rating);
   const pickupAway = formatDistance(ride.pickupDistanceMeters);
 
-  const vehicleLabel = driver.vehicle
-    ? `${driver.vehicle}`
-    : vehicleType;
+  const vehicleLabel = driver.vehicle ? `${driver.vehicle}` : vehicleType;
 
   const accessibilityLabel =
     `${driver.name || 'Driver'}, ${ride.from} to ${ride.to}, ` +
@@ -574,9 +480,7 @@ function RouteCard({ ride, onPress }) {
                 size={13}
                 color={C.textMuted}
               />
-              <Text style={cardStyles.durationText}>
-                {duration}
-              </Text>
+              <Text style={cardStyles.durationText}>{duration}</Text>
             </View>
           ) : (
             <View style={cardStyles.durationSpacer} />
@@ -587,11 +491,7 @@ function RouteCard({ ride, onPress }) {
           <Text style={cardStyles.time}>{ride.arrivalTime}</Text>
 
           <View style={cardStyles.dotCol}>
-            <Icon
-              name="map-marker"
-              size={20}
-              color={C.primary}
-            />
+            <Icon name="map-marker" size={20} color={C.primary} />
           </View>
 
           <Text style={cardStyles.place} numberOfLines={1}>
@@ -648,6 +548,790 @@ function RouteCard({ ride, onPress }) {
 
 const MemoRouteCard = memo(RouteCard);
 
+/* =======================================================
+   FILTER CONFIG & PANEL
+======================================================= */
+const VEHICLE_TYPES = ['Car', 'Van', 'SUV', 'Other'];
+
+const AC_OPTIONS = [
+  { value: 'any', label: 'Any', icon: 'tune-variant' },
+  { value: 'ac', label: 'AC', icon: 'snowflake' },
+  { value: 'noac', label: 'No AC', icon: 'snowflake-off' },
+];
+
+const INITIAL_FILTERS = {
+  ac: 'any',
+  types: [],
+};
+
+function FilterPanel({ open, filters, onChange, onClear }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  const [mounted, setMounted] = useState(open);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else if (mounted) {
+      Animated.timing(anim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }).start(() => setMounted(false));
+    }
+  }, [open, mounted, anim]);
+
+  if (!mounted) return null;
+
+  function toggleType(type) {
+    const has = filters.types.includes(type);
+    onChange({
+      ...filters,
+      types: has
+        ? filters.types.filter((item) => item !== type)
+        : [...filters.types, type],
+    });
+  }
+
+  const hasActive = filters.ac !== 'any' || filters.types.length > 0;
+
+  return (
+    <Animated.View
+      style={[
+        styles.filterCard,
+        {
+          opacity: anim,
+          transform: [
+            {
+              translateY: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-10, 0],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <Text style={styles.filterLabel}>Air conditioning</Text>
+
+      <View style={styles.segWrap} accessibilityRole="radiogroup">
+        {AC_OPTIONS.map((option) => {
+          const selected = filters.ac === option.value;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => onChange({ ...filters, ac: option.value })}
+              style={[styles.seg, selected && styles.segOn]}
+              accessibilityRole="radio"
+              accessibilityLabel={option.label}
+              accessibilityState={{ selected }}
+            >
+              <Icon
+                name={option.icon}
+                size={16}
+                color={selected ? C.white : C.secondary}
+              />
+              <Text style={[styles.segText, selected && styles.segTextOn]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={[styles.filterLabel, styles.filterLabelSpaced]}>
+        Vehicle type
+      </Text>
+
+      <View style={styles.chipRow}>
+        {VEHICLE_TYPES.map((type) => {
+          const selected = filters.types.includes(type);
+          return (
+            <Pressable
+              key={type}
+              onPress={() => toggleType(type)}
+              style={[styles.chip, selected && styles.chipOn]}
+              accessibilityRole="button"
+              accessibilityLabel={`${type} vehicles`}
+              accessibilityState={{ selected }}
+            >
+              <Icon
+                name={VEHICLE_ICONS[type]}
+                size={18}
+                color={selected ? C.primary : C.textMuted}
+              />
+              <Text style={[styles.chipText, selected && styles.chipTextOn]}>
+                {type}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {hasActive ? (
+        <Pressable
+          onPress={onClear}
+          style={styles.clearButton}
+          accessibilityRole="button"
+          accessibilityLabel="Clear all filters"
+        >
+          <Icon name="close-circle-outline" size={18} color={C.primary} />
+          <Text style={styles.clearText}>Clear all filters</Text>
+        </Pressable>
+      ) : null}
+    </Animated.View>
+  );
+}
+
+/* =======================================================
+   RESULTS SCREEN MAIN COMPONENT
+======================================================= */
+export default function ResultsScreen({ route }) {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const params = route?.params ?? {};
+
+  // Form input states
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [fromCoords, setFromCoords] = useState(null);
+  const [toCoords, setToCoords] = useState(null);
+  const [date, setDate] = useState(String(params.date ?? tomorrowISO()));
+  const [passengers, setPassengers] = useState(
+    Math.max(1, Number(params.passengers) || 1)
+  );
+
+  // Calendar
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Search Results & UI states
+  const [rides, setRides] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(true);
+  const [searchError, setSearchError] = useState('');
+  const [apiError, setApiError] = useState('');
+
+  // Filters
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState(INITIAL_FILTERS);
+
+  const minimumDate = useMemo(() => getTodayLocalDate(), []);
+
+  const selectedCalendarDate = useMemo(() => {
+    const parsed = parseLocalDate(date);
+    if (!parsed || parsed < minimumDate) return minimumDate;
+    return parsed;
+  }, [date, minimumDate]);
+
+  /* -------------------------------------------------------
+     MAP PICKER HANDLERS
+  ------------------------------------------------------- */
+  function openMapPicker(type) {
+    const isOrigin = type === 'origin';
+    const setCoords = isOrigin ? setFromCoords : setToCoords;
+    const setName = isOrigin ? setFrom : setTo;
+
+    setMapPickerSelectionHandler((location) => {
+      setCoords({
+        latitude: location.latitude,
+        longitude: location.longitude,
+      });
+
+      setName(
+        location.placeName ||
+          `Selected (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`
+      );
+    });
+
+    const initial =
+      (isOrigin ? fromCoords : toCoords) || DEFAULT_MAP_CENTER;
+
+    router.push({
+      pathname: '/map-picker',
+      params: {
+        latitude: String(initial.latitude),
+        longitude: String(initial.longitude),
+        placeName: isOrigin ? from : to,
+      },
+    });
+  }
+
+  function swapLocations() {
+    setFrom(to);
+    setTo(from);
+    setFromCoords(toCoords);
+    setToCoords(fromCoords);
+  }
+
+  function handleDateChange(event, selectedDate) {
+    setShowDatePicker(false);
+    if (event.type === 'set' && selectedDate) {
+      const formattedDate = formatDateForBackend(selectedDate);
+      setDate(formattedDate);
+      setSearchError('');
+      setApiError('');
+    }
+  }
+
+  /* -------------------------------------------------------
+     CORE SEARCH EXECUTION
+  ------------------------------------------------------- */
+  const handleSearch = useCallback(async () => {
+    const cleanDate = date.trim();
+
+    if (!fromCoords || !toCoords) {
+      setSearchError(
+        'Choose a suggestion (or use the pin button) for both origin and destination.'
+      );
+      return;
+    }
+
+    if (
+      fromCoords.latitude === toCoords.latitude &&
+      fromCoords.longitude === toCoords.longitude
+    ) {
+      setSearchError('Origin and destination must be different.');
+      return;
+    }
+
+    if (!isValidDate(cleanDate)) {
+      setSearchError('Please select a valid travel date.');
+      return;
+    }
+
+    if (isPastDate(cleanDate)) {
+      setSearchError(
+        'Travel date cannot be in the past. Please select today or a future date.'
+      );
+      return;
+    }
+
+    setSearchError('');
+    setApiError('');
+    setHasSearched(true);
+    setSearchOpen(false);
+    setLoading(true);
+    setRides([]);
+
+    try {
+      // Calls centralized service (Axios interceptor injects Bearer token)
+      const rows = await searchAvailableRides({
+        pickup: fromCoords,
+        dropoff: toCoords,
+        departureDate: cleanDate,
+        seats: passengers,
+        maxDistanceMeters: 5000,
+      });
+
+      setRides(rows.map((row) => mapBackendRide(row, cleanDate)));
+    } catch (err) {
+      console.log('Ride search error:', err?.message);
+      setApiError(err?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [fromCoords, toCoords, date, passengers]);
+
+  /* -------------------------------------------------------
+     FILTER CALCULATION
+  ------------------------------------------------------- */
+  const visibleRides = useMemo(() => {
+    return (rides || []).filter((ride) => {
+      const hasAC = getRideHasAC(ride);
+      if (filters.ac === 'ac' && !hasAC) return false;
+      if (filters.ac === 'noac' && hasAC) return false;
+
+      if (
+        filters.types.length > 0 &&
+        !filters.types.includes(getRideVehicleType(ride))
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [rides, filters]);
+
+  const activeFilterCount =
+    (filters.ac !== 'any' ? 1 : 0) + filters.types.length;
+
+  const clearFilters = useCallback(() => {
+    setFilters(INITIAL_FILTERS);
+  }, []);
+
+  const renderItem = useCallback(
+    ({ item }) => (
+      <MemoRouteCard
+        ride={item}
+        onPress={() => {
+          const raw = item.rawRide || {};
+          const driverId =
+            item.driverId ||
+            raw.driver_id ||
+            raw.driverID ||
+            raw.driverId ||
+            item.driver?.id ||
+            item.driver?._id;
+
+          const vehicleId =
+            item.vehicleId ||
+            raw.vehicle_id ||
+            raw.vehicalID ||
+            raw.vehicleId ||
+            raw.vehicalId ||
+            item.vehicle?.id ||
+            item.vehicle?._id;
+
+          router.push({
+            pathname: '/ride-details',
+            params: {
+              ride: JSON.stringify({
+                ...raw,
+                ...item,
+                // Normalized driver and vehicle IDs
+                driver_id: driverId,
+                driverID: driverId,
+                driverId: driverId,
+                vehicle_id: vehicleId,
+                vehicalID: vehicleId,
+                vehicleId: vehicleId,
+
+                // Normalized route endpoints
+                origin_name: item.from || raw.origin_name || raw.origin?.name || raw.origin,
+                destination_name: item.to || raw.destination_name || raw.destination?.name || raw.destination,
+                from: item.from,
+                to: item.to,
+
+                // Normalized pricing and seat availability
+                price_per_seat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+                pricePerSeat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+                available_seats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+                availableSeats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+                seatsFree: item.seatsFree,
+
+                // Normalized departures and timings
+                departure_at:
+                  raw.departure_at ||
+                  raw.departureAt ||
+                  (item.date ? `${item.date}T${item.departureTime || '00:00'}` : undefined),
+                departureTime: item.departureTime,
+                arrivalTime: item.arrivalTime,
+                date: item.date,
+
+                // Metrics
+                full_route_distance_meters:
+                  raw.full_route_distance_meters ?? raw.distanceMeters ?? item.rideDistanceMeters,
+                full_route_duration_seconds:
+                  raw.full_route_duration_seconds ??
+                  raw.durationSeconds ??
+                  (item.durationMin ? item.durationMin * 60 : undefined),
+                ride_distance_meters:
+                  raw.ride_distance_meters ?? item.rideDistanceMeters ?? raw.distanceMeters,
+                pickup_distance_meters: item.pickupDistanceMeters ?? raw.pickup_distance_meters,
+                dropoff_distance_meters: item.dropoffDistanceMeters ?? raw.dropoff_distance_meters,
+
+                // Map markers and route geometry
+                suggested_pickup: item.suggestedPickup || raw.suggested_pickup || fromCoords,
+                suggested_dropoff: item.suggestedDropoff || raw.suggested_dropoff || toCoords,
+                matched_route_segment:
+                  item.matchedRouteSegment || raw.matched_route_segment || raw.geometry,
+
+                // Search coordinates passed as fallback
+                searchPickup: fromCoords,
+                searchDropoff: toCoords,
+              }),
+              passengers: String(passengers),
+            },
+          });
+        }}
+      />
+    ),
+    [router, passengers, fromCoords, toCoords]
+  );
+
+  /* -------------------------------------------------------
+     HEADER WITH CONTROLS & INPUTS
+  ------------------------------------------------------- */
+  const header = (
+    <SafeAreaView>
+      <View style={styles.headerWrap}>
+        <PressScale
+          onPress={() => setSearchOpen((open) => !open)}
+          label={searchOpen ? 'Hide ride search' : 'Search for rides'}
+          state={{ expanded: searchOpen }}
+          style={styles.searchToggleButton}
+        >
+          <Icon
+            name={searchOpen ? 'close' : 'magnify'}
+            size={20}
+            color={C.white}
+          />
+          <Text style={styles.searchToggleText}>
+            {searchOpen ? 'Close search' : 'Search rides'}
+          </Text>
+          <Icon
+            name={searchOpen ? 'chevron-up' : 'chevron-down'}
+            size={18}
+            color={C.white}
+          />
+        </PressScale>
+
+        {searchOpen && (
+          <View style={styles.searchCard}>
+            <View style={styles.searchHeadingRow}>
+              <View style={styles.searchHeadingIcon}>
+                <Icon
+                  name="map-search-outline"
+                  size={21}
+                  color={C.primary}
+                />
+              </View>
+              <View style={styles.searchHeadingText}>
+                <Text style={styles.searchHeading}>Find your ride</Text>
+                <Text style={styles.searchSubheading}>
+                  Search places or pick them on the map
+                </Text>
+              </View>
+            </View>
+
+            {/* ORIGIN & DESTINATION INPUTS */}
+            <View style={styles.inputsWrap}>
+              <PlaceInput
+                label="Origin"
+                color={C.success}
+                value={from}
+                hasCoords={!!fromCoords}
+                onChangeText={(t) => {
+                  setFrom(t);
+                  setFromCoords(null);
+                }}
+                onSelect={(p) => {
+                  setFrom(p.name);
+                  setFromCoords({
+                    latitude: p.latitude,
+                    longitude: p.longitude,
+                  });
+                }}
+                onPickMap={() => openMapPicker('origin')}
+              />
+
+              <Pressable
+                style={styles.swapBtn}
+                onPress={swapLocations}
+                accessibilityRole="button"
+                accessibilityLabel="Swap origin and destination"
+              >
+                <Icon name="swap-vertical" size={18} color={C.white} />
+              </Pressable>
+
+              <PlaceInput
+                label="Destination"
+                color={C.danger}
+                value={to}
+                hasCoords={!!toCoords}
+                onChangeText={(t) => {
+                  setTo(t);
+                  setToCoords(null);
+                }}
+                onSelect={(p) => {
+                  setTo(p.name);
+                  setToCoords({
+                    latitude: p.latitude,
+                    longitude: p.longitude,
+                  });
+                }}
+                onPickMap={() => openMapPicker('destination')}
+              />
+            </View>
+
+            {/* TRAVEL DATE CALENDAR */}
+            <View style={[styles.inputGroup, styles.dateGroup]}>
+              <Text style={styles.inputLabel}>TRAVEL DATE</Text>
+              <Pressable
+                style={styles.inputShell}
+                onPress={() => setShowDatePicker(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Select travel date"
+              >
+                <Icon
+                  name="calendar-month-outline"
+                  size={20}
+                  color={C.primary}
+                />
+                <View style={styles.dateTextContainer}>
+                  <Text style={styles.dateValue}>{date}</Text>
+                  <Text style={styles.dateHint}>
+                    Tap to choose your travel date
+                  </Text>
+                </View>
+                <Icon name="chevron-down" size={20} color={C.grey} />
+              </Pressable>
+
+              {showDatePicker && (
+                <DateTimePicker
+                  value={selectedCalendarDate}
+                  mode="date"
+                  display="default"
+                  minimumDate={minimumDate}
+                  onChange={handleDateChange}
+                />
+              )}
+            </View>
+
+            {/* PASSENGERS STEPPER */}
+            <View style={styles.passengerRow}>
+              <View style={styles.passengerInfo}>
+                <View style={styles.passengerIcon}>
+                  <Icon
+                    name="account-multiple-outline"
+                    size={20}
+                    color={C.primary}
+                  />
+                </View>
+                <View>
+                  <Text style={styles.passengerTitle}>Passengers</Text>
+                  <Text style={styles.passengerHint}>
+                    How many seats do you need?
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.stepper}>
+                <Pressable
+                  onPress={() =>
+                    setPassengers((count) => Math.max(1, count - 1))
+                  }
+                  style={styles.stepperButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove one passenger"
+                  disabled={passengers <= 1}
+                >
+                  <Icon
+                    name="minus"
+                    size={18}
+                    color={passengers <= 1 ? C.grey : C.primary}
+                  />
+                </Pressable>
+
+                <Text style={styles.passengerCount}>{passengers}</Text>
+
+                <Pressable
+                  onPress={() =>
+                    setPassengers((count) => Math.min(12, count + 1))
+                  }
+                  style={styles.stepperButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add one passenger"
+                  disabled={passengers >= 12}
+                >
+                  <Icon
+                    name="plus"
+                    size={18}
+                    color={passengers >= 12 ? C.grey : C.primary}
+                  />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* VALIDATION ERROR */}
+            {searchError ? (
+              <View style={styles.searchError}>
+                <Icon
+                  name="alert-circle-outline"
+                  size={18}
+                  color={C.danger}
+                />
+                <Text style={styles.searchErrorText}>{searchError}</Text>
+              </View>
+            ) : null}
+
+            {/* SEARCH BUTTON */}
+            <PressScale
+              onPress={handleSearch}
+              disabled={loading}
+              label="Search available rides"
+              style={[
+                styles.searchButton,
+                loading && styles.searchButtonDisabled,
+              ]}
+            >
+              {loading ? (
+                <ActivityIndicator color={C.white} />
+              ) : (
+                <>
+                  <Icon name="magnify" size={20} color={C.white} />
+                  <Text style={styles.searchButtonText}>Search rides</Text>
+                </>
+              )}
+            </PressScale>
+          </View>
+        )}
+
+        {/* RESULTS HEADER & FILTER BUTTON */}
+        {hasSearched && !loading && !apiError ? (
+          <>
+            <View style={styles.titleRow}>
+              <View style={styles.titleText}>
+                <Text style={styles.resultsTitle} accessibilityRole="header">
+                  Available rides
+                </Text>
+                <Text style={styles.resultsCount}>
+                  {activeFilterCount > 0
+                    ? `${visibleRides.length} of ${rides.length} rides`
+                    : `${rides.length} ${
+                        rides.length === 1 ? 'ride' : 'rides'
+                      } found`}
+                </Text>
+              </View>
+
+              <PressScale
+                onPress={() => setFiltersOpen((prev) => !prev)}
+                label={
+                  activeFilterCount > 0
+                    ? `Filters, ${activeFilterCount} active`
+                    : 'Filters'
+                }
+                state={{ expanded: filtersOpen }}
+                style={[
+                  styles.filterButton,
+                  (filtersOpen || activeFilterCount > 0) &&
+                    styles.filterButtonOn,
+                ]}
+              >
+                <Icon name="tune-variant" size={18} color={C.primary} />
+                <Text style={styles.filterButtonText}>Filters</Text>
+                {activeFilterCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{activeFilterCount}</Text>
+                  </View>
+                )}
+              </PressScale>
+            </View>
+
+            <FilterPanel
+              open={filtersOpen}
+              filters={filters}
+              onChange={setFilters}
+              onClear={clearFilters}
+            />
+          </>
+        ) : null}
+      </View>
+    </SafeAreaView>
+  );
+
+  /* -------------------------------------------------------
+     EMPTY & ERROR STATES
+  ------------------------------------------------------- */
+  const filteredOut = rides.length > 0 && visibleRides.length === 0;
+
+  const emptyComponent = loading ? (
+    <View style={styles.empty}>
+      <ActivityIndicator size="large" color={C.primary} />
+      <Text style={styles.loadingText}>Searching for rides...</Text>
+    </View>
+  ) : apiError ? (
+    <View style={styles.empty}>
+      <View
+        style={[
+          styles.emptyIcon,
+          { backgroundColor: C.dangerSoft },
+        ]}
+      >
+        <Icon name="wifi-off" size={44} color={C.danger} />
+      </View>
+      <Text style={styles.emptyTitle}>Couldn't search rides</Text>
+      <Text style={styles.emptyText}>{apiError}</Text>
+      <PressScale
+        onPress={handleSearch}
+        label="Try again"
+        style={styles.button}
+      >
+        <Text style={styles.buttonText}>Try again</Text>
+      </PressScale>
+    </View>
+  ) : (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <Icon
+          name={
+            !hasSearched
+              ? 'magnify'
+              : filteredOut
+              ? 'filter-off-outline'
+              : 'car-off'
+          }
+          size={44}
+          color={C.primary}
+        />
+      </View>
+      <Text style={styles.emptyTitle}>
+        {!hasSearched
+          ? 'Ready to find a ride?'
+          : filteredOut
+          ? 'No rides match your filters'
+          : 'No rides found'}
+      </Text>
+      <Text style={styles.emptyText}>
+        {!hasSearched
+          ? 'Choose your origin, destination, travel date and passenger count above.'
+          : filteredOut
+          ? 'Try turning off a filter to see more rides.'
+          : 'There are no rides for these places on this date. Try another date or location.'}
+      </Text>
+      {hasSearched ? (
+        <PressScale
+          onPress={
+            filteredOut ? clearFilters : () => setSearchOpen(true)
+          }
+          label={filteredOut ? 'Clear filters' : 'Change search'}
+          style={styles.button}
+        >
+          <Text style={styles.buttonText}>
+            {filteredOut ? 'Clear filters' : 'Change search'}
+          </Text>
+        </PressScale>
+      ) : null}
+    </View>
+  );
+
+  return (
+    <LinearGradient
+      colors={[C.background, C.gradientEnd]}
+      style={styles.flex}
+    >
+      <View pointerEvents="none" style={styles.glowA} />
+      <View pointerEvents="none" style={styles.glowB} />
+
+      <FlatList
+        style={styles.flex}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + 120 },
+        ]}
+        data={hasSearched && !apiError ? visibleRides : []}
+        keyExtractor={(item, index) =>
+          String(item.id ?? item._id ?? `ride-${index}`)
+        }
+        ListHeaderComponent={header}
+        ListEmptyComponent={emptyComponent}
+        renderItem={renderItem}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      />
+    </LinearGradient>
+  );
+}
+
+/* =======================================================
+   STYLES
+======================================================= */
 const cardStyles = StyleSheet.create({
   card: {
     backgroundColor: C.white,
@@ -822,903 +1506,10 @@ const cardStyles = StyleSheet.create({
   },
 });
 
-/* =======================================================
-   FILTERS
-======================================================= */
-
-const VEHICLE_TYPES = ['Car', 'Van', 'SUV', 'Other'];
-
-const AC_OPTIONS = [
-  { value: 'any', label: 'Any', icon: 'tune-variant' },
-  { value: 'ac', label: 'AC', icon: 'snowflake' },
-  { value: 'noac', label: 'No AC', icon: 'snowflake-off' },
-];
-
-const INITIAL_FILTERS = {
-  ac: 'any',
-  types: [],
-};
-
-/* =======================================================
-   PAGE BACKGROUND
-======================================================= */
-
-function GradientScreen({ children }) {
-  return (
-    <LinearGradient
-      colors={[C.background, C.gradientEnd]}
-      style={styles.flex}
-    >
-      <View pointerEvents="none" style={styles.glowA} />
-      <View pointerEvents="none" style={styles.glowB} />
-      {children}
-    </LinearGradient>
-  );
-}
-
-/* =======================================================
-   FILTER PANEL
-======================================================= */
-
-function FilterPanel({ open, filters, onChange, onClear }) {
-  const anim = useRef(new Animated.Value(0)).current;
-  const [mounted, setMounted] = useState(open);
-
-  useEffect(() => {
-    if (open) {
-      setMounted(true);
-
-      Animated.timing(anim, {
-        toValue: 1,
-        duration: 240,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    } else if (mounted) {
-      Animated.timing(anim, {
-        toValue: 0,
-        duration: 180,
-        useNativeDriver: true,
-      }).start(() => setMounted(false));
-    }
-  }, [open]);
-
-  if (!mounted) return null;
-
-  function toggleType(type) {
-    const has = filters.types.includes(type);
-
-    onChange({
-      ...filters,
-      types: has
-        ? filters.types.filter((item) => item !== type)
-        : [...filters.types, type],
-    });
-  }
-
-  const hasActive =
-    filters.ac !== 'any' || filters.types.length > 0;
-
-  return (
-    <Animated.View
-      style={[
-        styles.filterCard,
-        {
-          opacity: anim,
-          transform: [
-            {
-              translateY: anim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [-10, 0],
-              }),
-            },
-          ],
-        },
-      ]}
-    >
-      <Text style={styles.filterLabel}>Air conditioning</Text>
-
-      <View
-        style={styles.segWrap}
-        accessibilityRole="radiogroup"
-      >
-        {AC_OPTIONS.map((option) => {
-          const selected = filters.ac === option.value;
-
-          return (
-            <Pressable
-              key={option.value}
-              onPress={() =>
-                onChange({ ...filters, ac: option.value })
-              }
-              style={[styles.seg, selected && styles.segOn]}
-              accessibilityRole="radio"
-              accessibilityLabel={option.label}
-              accessibilityState={{ selected }}
-            >
-              <Icon
-                name={option.icon}
-                size={16}
-                color={selected ? C.white : C.secondary}
-              />
-              <Text
-                style={[
-                  styles.segText,
-                  selected && styles.segTextOn,
-                ]}
-              >
-                {option.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <Text style={[styles.filterLabel, styles.filterLabelSpaced]}>
-        Vehicle type
-      </Text>
-
-      <View style={styles.chipRow}>
-        {VEHICLE_TYPES.map((type) => {
-          const selected = filters.types.includes(type);
-
-          return (
-            <Pressable
-              key={type}
-              onPress={() => toggleType(type)}
-              style={[styles.chip, selected && styles.chipOn]}
-              accessibilityRole="button"
-              accessibilityLabel={`${type} vehicles`}
-              accessibilityState={{ selected }}
-            >
-              <Icon
-                name={VEHICLE_ICONS[type]}
-                size={18}
-                color={selected ? C.primary : C.textMuted}
-              />
-              <Text
-                style={[
-                  styles.chipText,
-                  selected && styles.chipTextOn,
-                ]}
-              >
-                {type}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {hasActive ? (
-        <Pressable
-          onPress={onClear}
-          style={styles.clearButton}
-          accessibilityRole="button"
-          accessibilityLabel="Clear all filters"
-        >
-          <Icon
-            name="close-circle-outline"
-            size={18}
-            color={C.primary}
-          />
-          <Text style={styles.clearText}>Clear all filters</Text>
-        </Pressable>
-      ) : null}
-    </Animated.View>
-  );
-}
-
-/* =======================================================
-   RESULTS SCREEN
-======================================================= */
-
-export default function ResultsScreen({ route, navigation }) {
-  const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const params = route?.params ?? {};
-
-  // Search inputs
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-
-  const [fromCoords, setFromCoords] = useState(null);
-  const [toCoords, setToCoords] = useState(null);
-
-  const [date, setDate] = useState(
-    String(params.date ?? tomorrowISO())
-  );
-
-  const [passengers, setPassengers] = useState(
-    Math.max(1, Number(params.passengers) || 1)
-  );
-
-  // Calendar picker
-  const [showDatePicker, setShowDatePicker] = useState(false);
-
-  // Results
-  const [rides, setRides] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(true);
-
-  const [searchError, setSearchError] = useState('');
-  const [apiError, setApiError] = useState('');
-
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filters, setFilters] = useState(INITIAL_FILTERS);
-
-  // Calendar minimum date: today at local midnight
-  const minimumDate = useMemo(
-    () => getTodayLocalDate(),
-    []
-  );
-
-  // Ensure the date passed from navigation is valid.
-  const selectedCalendarDate = useMemo(() => {
-    const parsed = parseLocalDate(date);
-
-    if (!parsed || parsed < minimumDate) {
-      return minimumDate;
-    }
-
-    return parsed;
-  }, [date, minimumDate]);
-
-  /* -------------------------------------------------------
-     MAP PICKER
-  ------------------------------------------------------- */
-
-  function openMapPicker(type) {
-    const isOrigin = type === 'origin';
-
-    const setCoords = isOrigin
-      ? setFromCoords
-      : setToCoords;
-
-    const setName = isOrigin
-      ? setFrom
-      : setTo;
-
-    setMapPickerSelectionHandler((location) => {
-      setCoords({
-        latitude: location.latitude,
-        longitude: location.longitude,
-      });
-
-      setName(
-        location.placeName ||
-          `Selected location (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`
-      );
-    });
-
-    const initial =
-      (isOrigin ? fromCoords : toCoords) ||
-      DEFAULT_MAP_CENTER;
-
-    router.push({
-      pathname: '/map-picker',
-      params: {
-        latitude: String(initial.latitude),
-        longitude: String(initial.longitude),
-        placeName: isOrigin ? from : to,
-      },
-    });
-  }
-
-  function swapLocations() {
-    setFrom(to);
-    setTo(from);
-
-    setFromCoords(toCoords);
-    setToCoords(fromCoords);
-  }
-
-  /* -------------------------------------------------------
-     DATE PICKER HANDLER
-  ------------------------------------------------------- */
-
-  function handleDateChange(event, selectedDate) {
-    setShowDatePicker(false);
-
-    if (event.type === 'set' && selectedDate) {
-      const formattedDate = formatDateForBackend(selectedDate);
-
-      setDate(formattedDate);
-      setSearchError('');
-      setApiError('');
-    }
-  }
-
-  /* -------------------------------------------------------
-     SEARCH
-  ------------------------------------------------------- */
-
-  const load = useCallback(async () => {
-    const cleanDate = date.trim();
-
-    if (!fromCoords || !toCoords) {
-      setSearchError(
-        'Choose a suggestion (or use the pin button) for both origin and destination.'
-      );
-      return;
-    }
-
-    if (
-      fromCoords.latitude === toCoords.latitude &&
-      fromCoords.longitude === toCoords.longitude
-    ) {
-      setSearchError(
-        'Origin and destination must be different.'
-      );
-      return;
-    }
-
-    if (!isValidDate(cleanDate)) {
-      setSearchError('Please select a valid travel date.');
-      return;
-    }
-
-    if (isPastDate(cleanDate)) {
-      setSearchError(
-        'Travel date cannot be in the past. Please select today or a future date.'
-      );
-      return;
-    }
-
-    setSearchError('');
-    setApiError('');
-    setHasSearched(true);
-    setSearchOpen(false);
-    setLoading(true);
-    setRides([]);
-
-    try {
-      const rows = await searchRidesFromBackend({
-        pickup: fromCoords,
-        dropoff: toCoords,
-        date: cleanDate,
-        passengers,
-      });
-
-      setRides(
-        rows.map((row) => mapBackendRide(row, cleanDate))
-      );
-    } catch (err) {
-      console.log('Ride search failed:', err?.message);
-
-      setApiError(
-        err?.message || 'Something went wrong. Please try again.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [fromCoords, toCoords, date, passengers]);
-
-  /* -------------------------------------------------------
-     FILTER RESULTS
-  ------------------------------------------------------- */
-
-  const visibleRides = useMemo(() => {
-    return (rides || []).filter((ride) => {
-      const hasAC = getRideHasAC(ride);
-
-      if (filters.ac === 'ac' && !hasAC) return false;
-      if (filters.ac === 'noac' && hasAC) return false;
-
-      if (
-        filters.types.length > 0 &&
-        !filters.types.includes(getRideVehicleType(ride))
-      ) {
-        return false;
-      }
-
-      return true;
-    });
-  }, [rides, filters]);
-
-  const activeFilterCount =
-    (filters.ac !== 'any' ? 1 : 0) +
-    filters.types.length;
-
-  const clearFilters = useCallback(() => {
-    setFilters(INITIAL_FILTERS);
-  }, []);
-
-  const renderItem = useCallback(
-    ({ item }) => (
-      <MemoRouteCard
-        ride={item}
-        onPress={() => {
-          navigation?.navigate('RideDetails', {
-            ride: item,
-            passengers,
-          });
-        }}
-      />
-    ),
-    [navigation, passengers]
-  );
-
-  /* -------------------------------------------------------
-     HEADER
-  ------------------------------------------------------- */
-
-  const header = (
-    <SafeAreaView>
-      <View style={styles.headerWrap}>
-        <PressScale
-          onPress={() => setSearchOpen((open) => !open)}
-          label={
-            searchOpen ? 'Hide ride search' : 'Search for rides'
-          }
-          state={{ expanded: searchOpen }}
-          style={styles.searchToggleButton}
-        >
-          <Icon
-            name={searchOpen ? 'close' : 'magnify'}
-            size={20}
-            color={C.white}
-          />
-
-          <Text style={styles.searchToggleText}>
-            {searchOpen ? 'Close search' : 'Search rides'}
-          </Text>
-
-          <Icon
-            name={searchOpen ? 'chevron-up' : 'chevron-down'}
-            size={18}
-            color={C.white}
-          />
-        </PressScale>
-
-        {searchOpen ? (
-          <View style={styles.searchCard}>
-            <View style={styles.searchHeadingRow}>
-              <View style={styles.searchHeadingIcon}>
-                <Icon
-                  name="map-search-outline"
-                  size={21}
-                  color={C.primary}
-                />
-              </View>
-
-              <View style={styles.searchHeadingText}>
-                <Text style={styles.searchHeading}>
-                  Find your ride
-                </Text>
-
-                <Text style={styles.searchSubheading}>
-                  Search places or pick them on the map
-                </Text>
-              </View>
-            </View>
-
-            {/* ORIGIN AND DESTINATION */}
-
-            <View style={styles.inputsWrap}>
-              <PlaceInput
-                label="Origin"
-                color={C.success}
-                value={from}
-                hasCoords={!!fromCoords}
-                onChangeText={(t) => {
-                  setFrom(t);
-                  setFromCoords(null);
-                }}
-                onSelect={(p) => {
-                  setFrom(p.name);
-
-                  setFromCoords({
-                    latitude: p.latitude,
-                    longitude: p.longitude,
-                  });
-                }}
-                onPickMap={() => openMapPicker('origin')}
-              />
-
-              <Pressable
-                style={styles.swapBtn}
-                onPress={swapLocations}
-                accessibilityRole="button"
-                accessibilityLabel="Swap origin and destination"
-              >
-                <Icon
-                  name="swap-vertical"
-                  size={18}
-                  color={C.white}
-                />
-              </Pressable>
-
-              <PlaceInput
-                label="Destination"
-                color={C.danger}
-                value={to}
-                hasCoords={!!toCoords}
-                onChangeText={(t) => {
-                  setTo(t);
-                  setToCoords(null);
-                }}
-                onSelect={(p) => {
-                  setTo(p.name);
-
-                  setToCoords({
-                    latitude: p.latitude,
-                    longitude: p.longitude,
-                  });
-                }}
-                onPickMap={() => openMapPicker('destination')}
-              />
-            </View>
-
-            {/* TRAVEL DATE CALENDAR */}
-
-            <View style={[styles.inputGroup, styles.dateGroup]}>
-              <Text style={styles.inputLabel}>
-                TRAVEL DATE
-              </Text>
-
-              <Pressable
-                style={styles.inputShell}
-                onPress={() => setShowDatePicker(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Select travel date"
-              >
-                <Icon
-                  name="calendar-month-outline"
-                  size={20}
-                  color={C.primary}
-                />
-
-                <View style={styles.dateTextContainer}>
-                  <Text style={styles.dateValue}>
-                    {date}
-                  </Text>
-
-                  <Text style={styles.dateHint}>
-                    Tap to choose your travel date
-                  </Text>
-                </View>
-
-                <Icon
-                  name="chevron-down"
-                  size={20}
-                  color={C.grey}
-                />
-              </Pressable>
-
-              {showDatePicker ? (
-                <DateTimePicker
-                  value={selectedCalendarDate}
-                  mode="date"
-                  display="default"
-                  minimumDate={minimumDate}
-                  onChange={handleDateChange}
-                />
-              ) : null}
-            </View>
-
-            {/* PASSENGERS */}
-
-            <View style={styles.passengerRow}>
-              <View style={styles.passengerInfo}>
-                <View style={styles.passengerIcon}>
-                  <Icon
-                    name="account-multiple-outline"
-                    size={20}
-                    color={C.primary}
-                  />
-                </View>
-
-                <View>
-                  <Text style={styles.passengerTitle}>
-                    Passengers
-                  </Text>
-
-                  <Text style={styles.passengerHint}>
-                    How many seats do you need?
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.stepper}>
-                <Pressable
-                  onPress={() =>
-                    setPassengers((count) =>
-                      Math.max(1, count - 1)
-                    )
-                  }
-                  style={styles.stepperButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove one passenger"
-                  disabled={passengers <= 1}
-                >
-                  <Icon
-                    name="minus"
-                    size={18}
-                    color={passengers <= 1 ? C.grey : C.primary}
-                  />
-                </Pressable>
-
-                <Text style={styles.passengerCount}>
-                  {passengers}
-                </Text>
-
-                <Pressable
-                  onPress={() =>
-                    setPassengers((count) =>
-                      Math.min(12, count + 1)
-                    )
-                  }
-                  style={styles.stepperButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add one passenger"
-                  disabled={passengers >= 12}
-                >
-                  <Icon
-                    name="plus"
-                    size={18}
-                    color={passengers >= 12 ? C.grey : C.primary}
-                  />
-                </Pressable>
-              </View>
-            </View>
-
-            {/* VALIDATION ERROR */}
-
-            {searchError ? (
-              <View style={styles.searchError}>
-                <Icon
-                  name="alert-circle-outline"
-                  size={18}
-                  color={C.danger}
-                />
-
-                <Text style={styles.searchErrorText}>
-                  {searchError}
-                </Text>
-              </View>
-            ) : null}
-
-            {/* SEARCH BUTTON */}
-
-            <PressScale
-              onPress={load}
-              disabled={loading}
-              label="Search available rides"
-              style={[
-                styles.searchButton,
-                loading && styles.searchButtonDisabled,
-              ]}
-            >
-              {loading ? (
-                <ActivityIndicator color={C.white} />
-              ) : (
-                <>
-                  <Icon
-                    name="magnify"
-                    size={20}
-                    color={C.white}
-                  />
-
-                  <Text style={styles.searchButtonText}>
-                    Search rides
-                  </Text>
-                </>
-              )}
-            </PressScale>
-          </View>
-        ) : null}
-
-        {/* RESULTS TITLE AND FILTERS */}
-
-        {hasSearched && !loading && !apiError ? (
-          <>
-            <View style={styles.titleRow}>
-              <View style={styles.titleText}>
-                <Text
-                  style={styles.resultsTitle}
-                  accessibilityRole="header"
-                >
-                  Available rides
-                </Text>
-
-                <Text
-                  style={styles.resultsCount}
-                  accessibilityLiveRegion="polite"
-                >
-                  {activeFilterCount > 0
-                    ? `${visibleRides.length} of ${rides.length} rides`
-                    : `${rides.length} ${rides.length === 1 ? 'ride' : 'rides'} found`}
-                </Text>
-              </View>
-
-              <PressScale
-                onPress={() =>
-                  setFiltersOpen((previous) => !previous)
-                }
-                label={
-                  activeFilterCount > 0
-                    ? `Filters, ${activeFilterCount} active`
-                    : 'Filters'
-                }
-                state={{ expanded: filtersOpen }}
-                style={[
-                  styles.filterButton,
-                  (filtersOpen || activeFilterCount > 0) &&
-                    styles.filterButtonOn,
-                ]}
-              >
-                <Icon
-                  name="tune-variant"
-                  size={18}
-                  color={C.primary}
-                />
-
-                <Text style={styles.filterButtonText}>
-                  Filters
-                </Text>
-
-                {activeFilterCount > 0 ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>
-                      {activeFilterCount}
-                    </Text>
-                  </View>
-                ) : null}
-              </PressScale>
-            </View>
-
-            <FilterPanel
-              open={filtersOpen}
-              filters={filters}
-              onChange={setFilters}
-              onClear={clearFilters}
-            />
-          </>
-        ) : null}
-      </View>
-    </SafeAreaView>
-  );
-
-  /* -------------------------------------------------------
-     EMPTY / LOADING / ERROR STATES
-  ------------------------------------------------------- */
-
-  const filteredOut =
-    rides.length > 0 && visibleRides.length === 0;
-
-  const emptyComponent = loading ? (
-    <View style={styles.empty}>
-      <ActivityIndicator size="large" color={C.primary} />
-
-      <Text style={styles.loadingText}>
-        Searching for rides...
-      </Text>
-    </View>
-  ) : apiError ? (
-    <View style={styles.empty}>
-      <View
-        style={[
-          styles.emptyIcon,
-          { backgroundColor: C.dangerSoft },
-        ]}
-      >
-        <Icon
-          name="wifi-off"
-          size={44}
-          color={C.danger}
-        />
-      </View>
-
-      <Text style={styles.emptyTitle}>
-        Couldn't search rides
-      </Text>
-
-      <Text style={styles.emptyText}>
-        {apiError}
-      </Text>
-
-      <PressScale
-        onPress={load}
-        label="Try again"
-        style={styles.button}
-      >
-        <Text style={styles.buttonText}>
-          Try again
-        </Text>
-      </PressScale>
-    </View>
-  ) : (
-    <View style={styles.empty}>
-      <View style={styles.emptyIcon}>
-        <Icon
-          name={
-            !hasSearched
-              ? 'magnify'
-              : filteredOut
-                ? 'filter-off-outline'
-                : 'car-off'
-          }
-          size={44}
-          color={C.primary}
-        />
-      </View>
-
-      <Text style={styles.emptyTitle}>
-        {!hasSearched
-          ? 'Ready to find a ride?'
-          : filteredOut
-            ? 'No rides match your filters'
-            : 'No rides found'}
-      </Text>
-
-      <Text style={styles.emptyText}>
-        {!hasSearched
-          ? 'Choose your origin, destination, travel date and passenger count above.'
-          : filteredOut
-            ? 'Try turning off a filter to see more rides.'
-            : 'There are no rides for these places on this date. Try another date or location.'}
-      </Text>
-
-      {hasSearched ? (
-        <PressScale
-          onPress={
-            filteredOut
-              ? clearFilters
-              : () => setSearchOpen(true)
-          }
-          label={
-            filteredOut ? 'Clear filters' : 'Change search'
-          }
-          style={styles.button}
-        >
-          <Text style={styles.buttonText}>
-            {filteredOut ? 'Clear filters' : 'Change search'}
-          </Text>
-        </PressScale>
-      ) : null}
-    </View>
-  );
-
-  /* -------------------------------------------------------
-     PAGE RENDER
-  ------------------------------------------------------- */
-
-  return (
-    <GradientScreen>
-      <FlatList
-        style={styles.flex}
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + 120 },
-        ]}
-        data={
-          hasSearched && !apiError
-            ? visibleRides
-            : []
-        }
-        keyExtractor={(item, index) =>
-          String(item.id ?? item._id ?? `ride-${index}`)
-        }
-        ListHeaderComponent={header}
-        ListEmptyComponent={emptyComponent}
-        renderItem={renderItem}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      />
-    </GradientScreen>
-  );
-}
-
-/* =======================================================
-   STYLES
-======================================================= */
-
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-
   glowA: {
     position: 'absolute',
     top: -80,
@@ -1729,7 +1520,6 @@ const styles = StyleSheet.create({
     backgroundColor: C.accent,
     opacity: 0.28,
   },
-
   glowB: {
     position: 'absolute',
     bottom: 120,
@@ -1740,7 +1530,6 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary,
     opacity: 0.1,
   },
-
   content: {
     width: '100%',
     maxWidth: MAX_W,
@@ -1749,17 +1538,14 @@ const styles = StyleSheet.create({
     paddingTop: SP.lg,
     flexGrow: 1,
   },
-
   headerWrap: {
     zIndex: 10,
   },
-
   loadingText: {
     fontSize: 15,
     color: C.textMuted,
     marginTop: SP.md,
   },
-
   searchToggleButton: {
     minHeight: 50,
     flexDirection: 'row',
@@ -1771,7 +1557,6 @@ const styles = StyleSheet.create({
     marginBottom: SP.lg,
     ...SHADOW,
   },
-
   searchToggleText: {
     color: C.white,
     fontSize: 15,
@@ -1780,7 +1565,6 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
-
   searchCard: {
     backgroundColor: C.white,
     borderRadius: R.lg,
@@ -1789,13 +1573,11 @@ const styles = StyleSheet.create({
     zIndex: 10,
     ...SHADOW,
   },
-
   searchHeadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: SP.xl,
   },
-
   searchHeadingIcon: {
     width: 44,
     height: 44,
@@ -1805,27 +1587,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: SP.md,
   },
-
   searchHeadingText: {
     flex: 1,
   },
-
   searchHeading: {
     fontSize: 20,
     fontWeight: '800',
     color: C.text,
   },
-
   searchSubheading: {
     fontSize: 13,
     color: C.textMuted,
     marginTop: 2,
   },
-
   inputsWrap: {
     zIndex: 20,
   },
-
   swapBtn: {
     alignSelf: 'flex-end',
     width: 36,
@@ -1840,16 +1617,13 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: C.white,
   },
-
   inputGroup: {
     marginBottom: SP.md,
   },
-
   dateGroup: {
     marginTop: SP.lg,
     zIndex: 1,
   },
-
   inputLabel: {
     fontSize: 11,
     fontWeight: '800',
@@ -1857,7 +1631,6 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     marginBottom: SP.xs,
   },
-
   inputShell: {
     minHeight: 58,
     flexDirection: 'row',
@@ -1868,24 +1641,20 @@ const styles = StyleSheet.create({
     backgroundColor: C.background,
     paddingHorizontal: SP.md,
   },
-
   dateTextContainer: {
     flex: 1,
     marginLeft: SP.sm,
   },
-
   dateValue: {
     color: C.text,
     fontSize: 15,
     fontWeight: '700',
   },
-
   dateHint: {
     color: C.textMuted,
     fontSize: 11,
     marginTop: 2,
   },
-
   passengerRow: {
     minHeight: 64,
     flexDirection: 'row',
@@ -1897,14 +1666,12 @@ const styles = StyleSheet.create({
     paddingTop: SP.md,
     zIndex: 1,
   },
-
   passengerInfo: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     paddingRight: SP.sm,
   },
-
   passengerIcon: {
     width: 40,
     height: 40,
@@ -1914,19 +1681,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: SP.sm,
   },
-
   passengerTitle: {
     fontSize: 14,
     fontWeight: '800',
     color: C.text,
   },
-
   passengerHint: {
     fontSize: 11,
     color: C.textMuted,
     marginTop: 2,
   },
-
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1935,7 +1699,6 @@ const styles = StyleSheet.create({
     borderRadius: R.pill,
     padding: 3,
   },
-
   stepperButton: {
     width: 34,
     height: 34,
@@ -1944,7 +1707,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   passengerCount: {
     minWidth: 34,
     textAlign: 'center',
@@ -1952,7 +1714,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: C.text,
   },
-
   searchError: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1961,7 +1722,6 @@ const styles = StyleSheet.create({
     padding: SP.md,
     marginTop: SP.md,
   },
-
   searchErrorText: {
     flex: 1,
     color: C.danger,
@@ -1969,7 +1729,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: SP.sm,
   },
-
   searchButton: {
     minHeight: 54,
     flexDirection: 'row',
@@ -1980,30 +1739,25 @@ const styles = StyleSheet.create({
     marginTop: SP.lg,
     ...SHADOW,
   },
-
   searchButtonDisabled: {
     opacity: 0.7,
   },
-
   searchButtonText: {
     color: C.white,
     fontSize: 16,
     fontWeight: '800',
     marginLeft: SP.sm,
   },
-
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: SP.md,
   },
-
   titleText: {
     flex: 1,
     paddingRight: SP.md,
   },
-
   resultsTitle: {
     fontSize: 22,
     lineHeight: 28,
@@ -2011,13 +1765,11 @@ const styles = StyleSheet.create({
     color: C.text,
     letterSpacing: -0.3,
   },
-
   resultsCount: {
     fontSize: 13,
     color: C.textMuted,
     marginTop: 2,
   },
-
   filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2028,19 +1780,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
   },
-
   filterButtonOn: {
     backgroundColor: C.tint,
     borderColor: C.primary,
   },
-
   filterButtonText: {
     fontSize: 15,
     fontWeight: '700',
     color: C.primary,
     marginLeft: SP.sm,
   },
-
   badge: {
     minWidth: 20,
     height: 20,
@@ -2051,13 +1800,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     marginLeft: SP.sm,
   },
-
   badgeText: {
     color: C.white,
     fontSize: 12,
     fontWeight: '800',
   },
-
   filterCard: {
     backgroundColor: C.white,
     borderRadius: R.lg,
@@ -2065,25 +1812,21 @@ const styles = StyleSheet.create({
     marginBottom: SP.lg,
     ...SHADOW,
   },
-
   filterLabel: {
     fontSize: 14,
     fontWeight: '700',
     color: C.text,
     marginBottom: SP.sm,
   },
-
   filterLabelSpaced: {
     marginTop: SP.xl,
   },
-
   segWrap: {
     flexDirection: 'row',
     backgroundColor: C.tint,
     borderRadius: R.pill,
     padding: 4,
   },
-
   seg: {
     flex: 1,
     minHeight: 44,
@@ -2092,27 +1835,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: R.pill,
   },
-
   segOn: {
     backgroundColor: C.primary,
   },
-
   segText: {
     fontSize: 14,
     fontWeight: '700',
     color: C.secondary,
     marginLeft: 6,
   },
-
   segTextOn: {
     color: C.white,
   },
-
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
-
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2125,24 +1863,20 @@ const styles = StyleSheet.create({
     marginRight: SP.sm,
     marginBottom: SP.sm,
   },
-
   chipOn: {
     backgroundColor: C.tint,
     borderColor: C.primary,
   },
-
   chipText: {
     fontSize: 14,
     fontWeight: '500',
     color: C.text,
     marginLeft: 6,
   },
-
   chipTextOn: {
     color: C.primary,
     fontWeight: '700',
   },
-
   clearButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2150,20 +1884,17 @@ const styles = StyleSheet.create({
     minHeight: 44,
     marginTop: SP.xs,
   },
-
   clearText: {
     color: C.primary,
     fontSize: 15,
     fontWeight: '700',
     marginLeft: 6,
   },
-
   empty: {
     alignItems: 'center',
     marginTop: SP.xxxl,
     paddingHorizontal: SP.md,
   },
-
   emptyIcon: {
     width: 96,
     height: 96,
@@ -2172,7 +1903,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   emptyTitle: {
     fontSize: 20,
     fontWeight: '800',
@@ -2180,7 +1910,6 @@ const styles = StyleSheet.create({
     marginTop: SP.xl,
     textAlign: 'center',
   },
-
   emptyText: {
     fontSize: 15,
     lineHeight: 22,
@@ -2188,7 +1917,6 @@ const styles = StyleSheet.create({
     marginTop: SP.sm,
     textAlign: 'center',
   },
-
   button: {
     height: 54,
     borderRadius: R.md,
@@ -2198,7 +1926,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   buttonText: {
     color: C.white,
     fontSize: 16,

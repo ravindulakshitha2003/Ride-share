@@ -92,10 +92,15 @@ export function AuthProvider({ children }) {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     setUser(null);
   }
+  async function token() {
+    return await SecureStore.getItemAsync(TOKEN_KEY);
+    
+  }
 
   return (
     <AuthContext.Provider
       value={{
+        token,
         user,
         loading,
         login,
