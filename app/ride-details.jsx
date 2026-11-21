@@ -547,10 +547,13 @@ export default function RideDetailsScreen() {
     // Change '/booking' to your actual booking screen route.
     // The selected ride is passed to the next screen.
     router.push({
-      pathname: '/booking',
+
+      pathname: '/(dashbord)/request-ride',
       params: {
         ride: JSON.stringify(ride),
-      },
+        passengers: String(passengers),
+        },
+
     });
   };
 

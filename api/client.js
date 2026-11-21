@@ -10,7 +10,8 @@ export const TOKEN_KEY = 'access_token';
 // - Android Emulator: 'http://10.0.2.2:4001'
 // - iOS Simulator: 'http://localhost:4001'
 // ---------------------------------------------------------------------------
-const SERVER_IP = '192.168.8.159'; // <-- Replace with your current PC Wi-Fi IP
+//const SERVER_IP = '192.168.8.159'; // <-- Replace with your current PC Wi-Fi IP
+const SERVER_IP = '127.0.0.1';
 const PORT = '4001';             // Backend port (or 8080 if behind Nginx)
 
 const BASE_URL = `http://${SERVER_IP}:${PORT}`;
