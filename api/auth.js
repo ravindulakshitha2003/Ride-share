@@ -38,6 +38,7 @@ export async function registerUser(payload) {
     mobile,
     email,
     password,
+    confirmPassword,
     gender,
     dateOfBirth,
     wantsToDrive,
@@ -45,6 +46,7 @@ export async function registerUser(payload) {
     vehicle,
     photoUri,
     vehiclePhotoUri,
+    signupToken,
   } = payload;
 
   const formData = new FormData();
@@ -54,7 +56,13 @@ export async function registerUser(payload) {
   formData.append('mobile', mobile.trim());
   formData.append('email', email.trim().toLowerCase());
   formData.append('password', password);
+  formData.append('confirmPassword', confirmPassword);
   formData.append('role', wantsToDrive ? 'driver' : 'passenger');
+
+  // Proof from /verify-signup-code that this email was confirmed.
+  if (signupToken) {
+    formData.append('signupToken', signupToken);
+  }
 
   if (gender) {
     formData.append('gender', GENDER_MAP[gender] || gender.toLowerCase());
@@ -86,6 +94,7 @@ export async function registerUser(payload) {
     formData.append('vehicleType', String(vehicle.type).toLowerCase());
     formData.append('brand', vehicle.make);
     formData.append('model', vehicle.model);
+    formData.append('plateNumber', vehicle.plateNo);
     formData.append('year', String(vehicle.year));
     formData.append('color', vehicle.colour);
     formData.append('crNumber', vehicle.crNumber);
