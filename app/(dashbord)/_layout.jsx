@@ -83,6 +83,19 @@ export default function DashboardLayout() {
               ),
             }}
           />
+          <Tabs.Screen
+            name="NotificationScreen"
+            options={{
+              title: 'nitify',
+              tabBarIcon: ({ focused, color }) => (
+                <Ionicons
+                  name={focused ? 'barbell' : 'bar-chart-outline'}
+                  size={25}
+                  color={color}
+                />
+              ),
+            }}
+          />
 
           <Tabs.Screen
             name="profile"
