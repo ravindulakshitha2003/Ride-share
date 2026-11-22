@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { colors } from '../../theme/colors';
@@ -8,9 +8,10 @@ import CodeInput from '../../components/CodeInput';
 import useCountdown from '../../hooks/useCountdown';
 import maskEmail from '../../utils/maskEmail';
 import { getErrorMessage } from '../../api/client';
-import { resendEmailCode, verifyEmailCode } from '../../api/emailAuth';
+import { sendSignupCode, verifySignupCode } from '../../api/emailAuth';
 
-// Shown right after registration: confirm the email with the 6-digit code.
+// Sign up, step 2: enter the 6-digit code sent to the email.
+// When it is correct, the normal registration form opens with that email filled in.
 export default function VerifyEmail() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -23,8 +24,8 @@ export default function VerifyEmail() {
   const [resending, setResending] = useState(false);
   const timer = useCountdown(30);
 
-  function goToLogin() {
-    router.replace('/(auth)/login');
+  function changeEmail() {
+    router.replace({ pathname: '/(auth)/signup-email', params: { email } });
   }
 
   async function handleVerify() {
@@ -40,11 +41,13 @@ export default function VerifyEmail() {
     setSubmitting(true);
 
     try {
-      await verifyEmailCode(email, code);
+      const data = await verifySignupCode(email, code);
 
-      Alert.alert('Email verified', 'Thank you! You can now log in.', [
-        { text: 'Log in', onPress: goToLogin },
-      ]);
+      // replace: Back from the form should not return to the code screen.
+      router.replace({
+        pathname: '/(auth)/register',
+        params: { email, signupToken: data.signupToken },
+      });
     } catch (err) {
       setError(getErrorMessage(err));
       setCode('');
@@ -61,7 +64,7 @@ export default function VerifyEmail() {
     setInfo('');
 
     try {
-      await resendEmailCode(email);
+      await sendSignupCode(email);
       setInfo('A new code is on its way.');
       timer.restart(30);
     } catch (err) {
@@ -74,11 +77,14 @@ export default function VerifyEmail() {
   return (
     <AuthLayout
       title="Verify your email"
-      subtitle={`Your account is created. Enter the six-digit code we sent to ${maskEmail(email)} to confirm your email.`}
+      subtitle={`Enter the six-digit code we sent to ${maskEmail(email)}.`}
       footer={
-        <TouchableOpacity style={styles.skip} onPress={goToLogin}>
-          <Text style={styles.skipText}>Skip for now</Text>
-        </TouchableOpacity>
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Wrong email? </Text>
+          <TouchableOpacity onPress={changeEmail} disabled={submitting}>
+            <Text style={styles.link}>Change it</Text>
+          </TouchableOpacity>
+        </View>
       }
     >
       <CodeInput
@@ -113,9 +119,11 @@ export default function VerifyEmail() {
         {submitting ? (
           <ActivityIndicator color={colors.white} />
         ) : (
-          <Text style={styles.buttonText}>Verify email  →</Text>
+          <Text style={styles.buttonText}>Verify and continue  →</Text>
         )}
       </TouchableOpacity>
+
+      <Text style={styles.note}>Codes expire after 15 minutes.</Text>
     </AuthLayout>
   );
 }
@@ -134,6 +142,8 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.5 },
   buttonText: { color: colors.white, fontSize: 16, fontWeight: 'bold' },
-  skip: { alignItems: 'center', marginTop: 20 },
-  skipText: { color: colors.primary, fontWeight: 'bold' },
+  note: { color: colors.text, opacity: 0.65, fontSize: 12, marginTop: 10 },
+  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 20 },
+  footerText: { color: colors.text },
+  link: { color: colors.primary, fontWeight: 'bold' },
 });

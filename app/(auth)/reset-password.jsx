@@ -135,7 +135,7 @@ export default function ResetPassword() {
       </TouchableOpacity>
 
       <Text style={styles.note}>You'll be signed out of all other sessions.</Text>
-      <Text style={styles.note}>Reset codes expire after 30 minutes.</Text>
+      <Text style={styles.note}>Reset codes expire after 15 minutes.</Text>
     </AuthLayout>
   );
 }

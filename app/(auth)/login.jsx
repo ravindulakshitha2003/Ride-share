@@ -208,6 +208,19 @@ export default function Login() {
         />
 
         <TouchableOpacity
+          style={styles.forgot}
+          onPress={() =>
+            router.push({
+              pathname: '/(auth)/forgot-password',
+              params: { email: email.trim().toLowerCase() },
+            })
+          }
+          disabled={submitting}
+        >
+          <Text style={styles.link}>Forgot password?</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           style={[styles.button, submitting && styles.buttonDisabled]}
           onPress={handleLogin}
           disabled={submitting}
@@ -224,7 +237,7 @@ export default function Login() {
           <Text style={styles.footerText}>Don't have an account? </Text>
 
           <TouchableOpacity
-            onPress={() => router.push('/(auth)/register')}
+            onPress={() => router.push('/(auth)/signup-email')}
             disabled={submitting}
           >
             <Text style={styles.link}>Register</Text>
@@ -236,6 +249,7 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
+  forgot: { alignSelf: 'flex-end', marginTop: 10, paddingVertical: 4 },
   flex: {
     flex: 1,
     backgroundColor: colors.background,

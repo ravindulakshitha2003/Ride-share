@@ -47,7 +47,34 @@ export async function resetPassword(resetToken, newPassword) {
   return res.data;
 }
 
-// Registration: confirm the email with the 6-digit code.
+// Sign up, step 1: email a 6-digit code BEFORE the account exists.
+// The server should refuse (409) if the email already has an account.
+export async function sendSignupCode(email) {
+  if (MOCK) {
+    await wait(500);
+    return { retryAfter: 30 };
+  }
+
+  const res = await client.post('/api/auth/send-signup-code', { email });
+
+  return res.data;
+}
+
+// Sign up, step 2: check the code. Returns { signupToken }, which the
+// register form sends back so the server knows this email was verified.
+export async function verifySignupCode(email, code) {
+  if (MOCK) {
+    await wait(500);
+    if (code !== MOCK_CODE) throw { response: { data: { message: 'That code is not correct.' } } };
+    return { signupToken: 'mock-signup-token' };
+  }
+
+  const res = await client.post('/api/auth/verify-signup-code', { email, code });
+
+  return res.data;
+}
+
+// (Older flow, no longer used by the app) confirm the email after registering.
 export async function verifyEmailCode(email, code) {
   if (MOCK) {
     await wait(500);

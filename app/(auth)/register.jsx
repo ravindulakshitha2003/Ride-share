@@ -22,7 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { colors } from '../../theme/colors';
 import useAuth from '../../hooks/useAuth';
@@ -419,11 +419,24 @@ const STEP_INFO = {
 export default function RegisterScreen() {
   const router = useRouter();
   const { register } = useAuth();
+
+  // Sent here by the verify-email screen after the code was correct.
+  const params = useLocalSearchParams();
+  const verifiedEmail = typeof params.email === 'string' ? params.email : '';
+  const signupToken =
+    typeof params.signupToken === 'string' ? params.signupToken : '';
+
+  // Opened without verifying an email first -> start at the email step.
+  useEffect(() => {
+    if (!verifiedEmail || !signupToken) {
+      router.replace('/(auth)/signup-email');
+    }
+  }, [verifiedEmail, signupToken]);
   const { width } = useWindowDimensions();
 
   // The number of the page that is showing (1 = first page).
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [form, setForm] = useState({ ...EMPTY_FORM, email: verifiedEmail });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -845,6 +858,7 @@ const result = fromCamera
       dateOfBirth: form.dateOfBirth.trim(),
       wantsToDrive: form.wantsToDrive,
       photoUri,
+      signupToken,
     };
 
     // Driver and vehicle details are sent only for people who registered as a driver.
@@ -885,6 +899,7 @@ const result = fromCamera
     try {
       await register(payload);
 
+      // The email was already verified before this form, so just go to login.
       const message = form.wantsToDrive
         ? 'Your driver application was submitted for review. You can log in now.'
         : 'Your account has been created. You can log in now.';
@@ -936,7 +951,9 @@ const result = fromCamera
           autoCapitalize="none"
           autoCorrect={false}
           placeholder="you@example.com"
+          editable={false}
         />
+        <Text style={styles.verifiedNote}>✓ Email verified</Text>
 
         <IconField
           label="Password"
@@ -1440,6 +1457,7 @@ const result = fromCamera
 }
 
 const styles = StyleSheet.create({
+  verifiedNote: { color: '#16A34A', fontSize: 12, fontWeight: '600', marginTop: 4 },
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
