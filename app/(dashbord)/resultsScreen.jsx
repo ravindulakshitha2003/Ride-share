@@ -308,6 +308,13 @@ function mapBackendRide(row, date) {
     (typeof row.destination === 'string' ? row.destination : row.destination?.placeName || row.destination?.name) ||
     'Destination';
 
+  // Extract intermediate stops & preferences
+  const intermediateStops = row.intermediate_stops || row.intermediateStops || [];
+  const ridePreferences = row.ride_preferences || row.ridePreferences || {};
+  const maxPassengerWaitingMinutes = Number(
+    row.max_passenger_waiting_minutes ?? row.maxPassengerWaitingMinutes ?? 10
+  );
+
   return {
     rawRide: row, // Preserves the raw snake_case backend row
     id: row.route_id || row.id,
@@ -340,6 +347,10 @@ function mapBackendRide(row, date) {
     suggestedPickup: row.suggested_pickup || row.suggestedPickup || row.origin,
     suggestedDropoff: row.suggested_dropoff || row.suggestedDropoff || row.destination,
     matchedRouteSegment: row.matched_route_segment || row.matchedRouteSegment || row.geometry,
+    // New fields from backend:
+    intermediateStops,
+    ridePreferences,
+    maxPassengerWaitingMinutes,
   };
 }
 
@@ -503,6 +514,28 @@ function RouteCard({ ride, onPress }) {
       <View style={cardStyles.divider} />
 
       <View style={cardStyles.pillRow}>
+        {ride.intermediateStops && ride.intermediateStops.length > 0 ? (
+          <InfoPill
+            icon="map-marker-path"
+            label={`${ride.intermediateStops.length} stop${ride.intermediateStops.length === 1 ? '' : 's'}`}
+            tone="violet"
+          />
+        ) : (
+          <InfoPill
+            icon="ray-start-end"
+            label="Direct"
+            tone="grey"
+          />
+        )}
+        
+        {ride.maxPassengerWaitingMinutes ? (
+          <InfoPill
+            icon="timer-sand"
+            label={`Wait ${ride.maxPassengerWaitingMinutes}m`}
+            tone="grey"
+          />
+        ) : null}
+
         <InfoPill
           icon={VEHICLE_ICONS[vehicleType]}
           label={vehicleLabel}
@@ -901,6 +934,14 @@ export default function ResultsScreen({ route }) {
                 vehicle_id: vehicleId,
                 vehicalID: vehicleId,
                 vehicleId: vehicleId,
+                
+                // New backend fields
+                intermediate_stops: item.intermediateStops || raw.intermediate_stops || [],
+                intermediateStops: item.intermediateStops || raw.intermediate_stops || [],
+                ride_preferences: item.ridePreferences || raw.ride_preferences || {},
+                ridePreferences: item.ridePreferences || raw.ride_preferences || {},
+                max_passenger_waiting_minutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
+                maxPassengerWaitingMinutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
 
                 // Normalized route endpoints
                 origin_name: item.from || raw.origin_name || raw.origin?.name || raw.origin,
