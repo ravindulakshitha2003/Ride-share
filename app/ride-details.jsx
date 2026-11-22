@@ -346,6 +346,7 @@ export default function RideDetailsScreen() {
       : 'Any age';
 
   const handleBookRide = () => {
+    
     router.push({
       pathname: '/booking',
       params: { ride: JSON.stringify(ride) },
