@@ -1,79 +1,134 @@
-//This file connects your Share-Ride frontend screens to the backend's authentication and profile APIs. 
-//It sends user information to the server and receives the results.
-
-
-// Import the shared axios client (it already adds the token header and the server address)
 import client from './client';
 
-// Build the file object that FormData needs from a photo's local path
+// Maps frontend chip display ('Male' -> 'male')
+const GENDER_MAP = {
+  Male: 'male',
+  Female: 'female',
+  'Prefer not to say': 'prefer_not_to_say',
+};
+
+
+
+
+
+
+
+// Formats React Native image URI into the file format Postman sends
 function photoFile(uri) {
-  // Take the file name from the end of the path
-  const name = uri.split('/').pop() || 'photo.jpg';
-  // Find the extension (jpg, png ...) to choose the file type
+  const name = uri.split('/').pop() || 'profile.jpg';
   const ext = (/\.(\w+)$/.exec(name)?.[1] || 'jpg').toLowerCase();
-  // PNG stays PNG; everything else is sent as JPEG
-  return { uri, name, type: ext === 'png' ? 'image/png' : 'image/jpeg' };
+  const type =
+    ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+
+  return {
+    uri,
+    name,
+    type,
+  };
 }
 
-// Send the registration form (with the optional photo and driver/vehicle details) to the backend
-export async function registerUser({
-  fullName, mobile, email, password, gender, dateOfBirth, wantsToDrive, driver, vehicle, photoUri, vehiclePhotoUri,
-}) {
-  // FormData is the format used to send text fields and a file together
+function withPhotoUrl(user) {
+  if (!user) return user;
+  return { ...user, photoUrl: user.profilePhotoUrl ?? user.photoUrl };
+}
+
+export async function registerUser(payload) {
+  const {
+    fullName,
+    mobile,
+    email,
+    password,
+    confirmPassword,
+    gender,
+    dateOfBirth,
+    wantsToDrive,
+    driver,
+    vehicle,
+    photoUri,
+    vehiclePhotoUri,
+    signupToken,
+  } = payload;
+
   const formData = new FormData();
-  // Add the plain text fields from FR-01
-  formData.append('name', fullName);
-  formData.append('mobile', mobile);
-  formData.append('email', email);
+
+  // Exactly matching your successful Postman form-data keys
+  formData.append('name', fullName.trim());
+  formData.append('mobile', mobile.trim());
+  formData.append('email', email.trim().toLowerCase());
   formData.append('password', password);
-  formData.append('gender', gender);
-  formData.append('dateOfBirth', dateOfBirth);
-  // FormData only carries text, so the true/false switch is sent as the word "true" or "false"
-  formData.append('wantsToDrive', String(!!wantsToDrive));
-  // Driver details (NIC, licence, address, emergency contact) are sent as JSON text; the backend must JSON.parse them
-  if (driver) formData.append('driver', JSON.stringify(driver));
-  // Vehicle details (type, make, model, colour, year, plate, seats and so on) are also sent as JSON text
-  if (vehicle) formData.append('vehicle', JSON.stringify(vehicle));
-  // Attach the photo under the field name "photo" when the user chose one
-  if (photoUri) formData.append('photo', photoFile(photoUri));
-  // Attach the vehicle photo under the field name "vehiclePhoto" (required for drivers)
-  if (vehiclePhotoUri) formData.append('vehiclePhoto', photoFile(vehiclePhotoUri));
-  // POST everything to the register endpoint; uploads get a longer 30 second timeout
-  const res = await client.post('/auth/register', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 30000,
+  formData.append('confirmPassword', confirmPassword);
+  formData.append('role', wantsToDrive ? 'driver' : 'passenger');
+
+  // Proof from /verify-signup-code that this email was confirmed.
+  if (signupToken) {
+    formData.append('signupToken', signupToken);
+  }
+
+  if (gender) {
+    formData.append('gender', GENDER_MAP[gender] || gender.toLowerCase());
+  }
+
+  if (dateOfBirth) {
+    formData.append('dateOfBirth', dateOfBirth.trim());
+  }
+
+  // Profile photo file
+  if (photoUri) {
+    formData.append('profilePhoto', photoFile(photoUri));
+  }
+
+  let path = '/api/auth/register';
+
+  // If registering as a driver with vehicle
+  if (wantsToDrive && driver && vehicle) {
+    path = '/api/auth/register-driver';
+
+    formData.append('nicNumber', driver.nicNumber);
+    formData.append('drivingLicenceNumber', driver.licenceNumber);
+    formData.append('licenceClass', driver.licenceClass);
+    formData.append('licenceExpiryDate', driver.licenceExpiry);
+    formData.append('address', driver.address);
+    formData.append('emergencyContactName', driver.emergencyContact.name);
+    formData.append('emergencyContactPhone', driver.emergencyContact.phone);
+
+    formData.append('vehicleType', String(vehicle.type).toLowerCase());
+    formData.append('brand', vehicle.make);
+    formData.append('model', vehicle.model);
+    formData.append('plateNumber', vehicle.plateNo);
+    formData.append('year', String(vehicle.year));
+    formData.append('color', vehicle.colour);
+    formData.append('crNumber', vehicle.crNumber);
+    formData.append('passengerSeats', String(vehicle.seats));
+    formData.append('airConditioning', String(!!vehicle.hasAC));
+    formData.append('luggageSpace', vehicle.luggage);
+    formData.append('vehicleDescription', vehicle.description || '');
+    formData.append('revenueLicenceExpiry', vehicle.revenueLicenceExpiry);
+    formData.append('insuranceExpiry', vehicle.insuranceExpiry);
+
+    if (vehiclePhotoUri) {
+      formData.append('vehiclePhoto', photoFile(vehiclePhotoUri));
+    }
+  }
+
+  // Send multipart/form-data
+  const res = await client.post(path, formData, {
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'multipart/form-data',
+    },
+    transformRequest: (data) => data, // Required in React Native so FormData boundary is preserved
+    timeout: 60000,
   });
-  // Return the backend's reply to the screen
-  return res.data;
+
+  return { ...res.data, user: withPhotoUrl(res.data.user) };
 }
 
-// Send the login form to the backend and get back the access token
 export async function loginUser({ email, password }) {
-  // POST the email and password to the login endpoint
-  const res = await client.post('/auth/login', { email, password });
-  // Return the reply, expected to look like { token: '...', user: {...} }
-  return res.data;
+  const { data } = await client.post('/api/auth/login', { email, password });
+  return data; // { message, user, token }
 }
 
-// Ask the backend for the profile of the currently logged-in user
 export async function getMe() {
-  // GET /me; the client attaches the saved token automatically, so no id is needed
-  const res = await client.get('/me');
-  // Some backends return { user: {...} } and others return the user directly, so handle both
-  return res.data.user ?? res.data;
-}
-
-// Upload a new profile photo for the logged-in user and return the updated user
-export async function uploadProfilePhoto(uri) {
-  // FormData is the format used to send files
-  const formData = new FormData();
-  // Attach the file under the field name "photo" (the backend must read this same name)
-  formData.append('photo', photoFile(uri));
-  // POST it to the backend; uploads get a longer 30 second timeout
-  const res = await client.post('/me/photo', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 30000,
-  });
-  // Return the updated user (the backend should include the new photoUrl)
-  return res.data.user ?? res.data;
+  const { data } = await client.get('/api/auth/me');
+  return data.user ?? data;
 }

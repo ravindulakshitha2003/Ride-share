@@ -1,463 +1,632 @@
+import React, { useMemo } from 'react';
 
-import { useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
+  Image,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 
-import { colors } from '../../theme/colors';
-import { requestBooking } from '../../api/rides';
-import { getErrorMessage } from '../../api/client';
-import { formatDuration, friendlyDate } from '../../utils/date';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
-export default function RideDetailsScreen({ route, navigation }) {
+/* =======================================================
+   DESIGN TOKENS & HELPERS
+======================================================= */
+
+const C = {
+  primary: '#5B4BDB',
+  secondary: '#312E81',
+  accent: '#F0ABFC',
+  background: '#F8F7FF',
+  surface: '#FFFFFF',
+  text: '#24213B',
+  textMuted: 'rgba(36,33,59,0.6)',
+  border: '#E4E1F5',
+  tint: '#EEEBFF',
+  success: '#16A34A',
+  star: '#F59E0B',
+  greySoft: '#F1F0F7',
+  grey: '#6B7280',
+};
+
+function formatCurrency(amount, currency = 'Rs') {
+  if (amount == null || Number.isNaN(Number(amount))) {
+    return `${currency} 0`;
+  }
+
+  return `${currency} ${String(Math.round(Number(amount))).replace(
+    /\B(?=(\d{3})+(?!\d))/g,
+    ','
+  )}`;
+}
+
+function formatDistance(meters) {
+  const value = Number(meters);
+
+  if (!Number.isFinite(value) || value <= 0) return '';
+  if (value < 1000) return `${Math.round(value)} m`;
+
+  return `${(value / 1000).toFixed(1)} km`;
+}
+
+function estimateWalkTime(meters) {
+  const value = Number(meters);
+
+  if (!value || value <= 0) return '';
+  return `${Math.ceil(value / 80)} min walk`;
+}
+
+/* =======================================================
+   MAIN SCREEN COMPONENT
+
+   This screen only displays ride information.
+   Seat selection and booking submission happen elsewhere.
+======================================================= */
+
+export default function RideDetailsScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [booking, setBooking] = useState(false);
+  const params = useLocalSearchParams();
 
-  // Read and validate navigation parameters.
-  const ride = route?.params?.ride;
-  const passengers = Math.max(
-    1,
-    Number(route?.params?.passengers) || 1
-  );
-
-  // Prevent crashes when the ride was not passed correctly.
-  if (!ride) {
-    return (
-      <View style={styles.errorPage}>
-        <Ionicons
-          name="alert-circle-outline"
-          size={48}
-          color={colors.error}
-        />
-        <Text style={styles.errorTitle}>Ride details unavailable</Text>
-        <Text style={styles.note}>
-          Please return to the results and select a ride again.
-        </Text>
-        <TouchableOpacity
-          style={styles.bookButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.bookText}>Go back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const driver = ride.driver ?? {};
-  const driverName = driver.name || 'Unknown driver';
-  const initial = driverName.charAt(0).toUpperCase();
-  const pricePerSeat = Number(ride.pricePerSeat);
-  const total = (
-    Number.isFinite(pricePerSeat) ? pricePerSeat : 0
-  ) * passengers;
-
-  const validDate = ride.date
-    ? new Date(`${ride.date}T00:00:00`)
-    : null;
-
-  const dateText =
-    validDate && !Number.isNaN(validDate.getTime())
-      ? friendlyDate(validDate)
-      : 'Date not available';
-
-  async function handleBook() {
-    const rideId = ride.id ?? ride._id;
-
-    // Validate before sending the API request.
-    if (!rideId) {
-      Alert.alert('Booking failed', 'The ride ID is missing.');
-      return;
-    }
-
-    if (!Number.isFinite(pricePerSeat) || pricePerSeat < 0) {
-      Alert.alert('Booking failed', 'The ride price is invalid.');
-      return;
-    }
-
-    if (booking) return;
-
-    setBooking(true);
-
+  // Parse ride data received from the previous screen.
+  const ride = useMemo(() => {
     try {
-      await requestBooking({
-        rideId,
-        seats: passengers,
-      });
+      if (typeof params.ride === 'string') {
+        return JSON.parse(params.ride);
+      }
 
-      Alert.alert(
-        'Request sent',
-        'The driver will review your request. You will be notified when it is accepted.',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // This assumes rideDetailsScreen is your My Rides tab.
-              const parent = navigation.getParent();
+      if (Array.isArray(params.ride)) {
+        return JSON.parse(params.ride[0]);
+      }
 
-              if (parent) {
-                parent.navigate('rideDetailsScreen');
-              } else {
-                navigation.navigate('rideDetailsScreen');
-              }
-            },
-          },
-        ]
-      );
-    } catch (err) {
-      Alert.alert('Could not book', getErrorMessage(err));
-    } finally {
-      setBooking(false);
+      return params.ride || {};
+    } catch (error) {
+      console.error('Failed to parse ride parameters:', error);
+      return {};
     }
-  }
+  }, [params.ride]);
+
+  // Passenger count was selected on resultsScreen.jsx.
+  // This screen displays it but does not allow changing it.
+  const passengers = useMemo(() => {
+    const rawPassengers = Array.isArray(params.passengers)
+      ? params.passengers[0]
+      : params.passengers;
+
+    const parsedPassengers = Number(rawPassengers);
+    return Number.isInteger(parsedPassengers) && parsedPassengers > 0
+      ? parsedPassengers
+      : 1;
+  }, [params.passengers]);
+
+  const driver = ride.driver || {};
+  const pricePerSeat = Number(ride.pricePerSeat || 0);
+  const totalPrice = pricePerSeat * passengers;
+  const currency = ride.currency || 'Rs';
+
+  // Continue to the next screen. Do not call the old
+  // /api/v1/route-matching/book endpoint from this screen.
+  const handleContinue = () => {
+    router.push({
+      pathname: '/(dashbord)/ride-details',
+      params: {
+        ride: JSON.stringify(ride),
+        passengers: String(passengers),
+      },
+    });
+  };
 
   return (
-    <View style={styles.page}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      {/* Navigation Header */}
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Icon name="arrow-left" size={24} color={C.text} />
+        </Pressable>
+
+        <Text style={styles.topBarTitle}>Ride Details</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: insets.bottom + 110 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.date}>{dateText}</Text>
-
-        {/* Journey details */}
-        <View style={styles.card}>
-          <View style={styles.stop}>
-            <Text style={styles.time}>
-              {ride.departureTime || '--:--'}
-            </Text>
-            <View style={styles.dot} />
-            <Text style={styles.place}>
-              {ride.from || 'Starting location unavailable'}
-            </Text>
-          </View>
-
-          <View style={styles.stop}>
-            <Text style={styles.duration}>
-              {Number.isFinite(Number(ride.durationMin))
-                ? formatDuration(Number(ride.durationMin))
-                : '--'}
-            </Text>
-            <View style={styles.bar} />
-            <View style={styles.spacer} />
-          </View>
-
-          <View style={styles.stop}>
-            <Text style={styles.time}>
-              {ride.arrivalTime || '--:--'}
-            </Text>
-            <View style={[styles.dot, styles.dotEnd]} />
-            <Text style={styles.place}>
-              {ride.to || 'Destination unavailable'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Price details */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Price</Text>
-
-          <View style={styles.priceRow}>
-            <Text style={styles.text}>
-              Rs. {Number.isFinite(pricePerSeat) ? pricePerSeat : 0}
-              {' x '}
-              {passengers} {passengers === 1 ? 'seat' : 'seats'}
-            </Text>
-
-            <Text style={styles.priceTotal}>
-              Rs. {total.toLocaleString('en-LK')}
-            </Text>
-          </View>
-
-          <Text style={styles.note}>
-            Pay the driver directly. The fare is your share of
-            the travel cost.
-          </Text>
-        </View>
-
-        {/* Driver information */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Your driver</Text>
-
-          <View style={styles.driverRow}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initial}</Text>
+        {/* Route Card Hero */}
+        <LinearGradient
+          colors={[C.primary, C.secondary]}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroTopRow}>
+            <View>
+              <Text style={styles.heroDate}>
+                {ride.date || 'Upcoming Trip'}
+              </Text>
+              <Text style={styles.heroDuration}>
+                {ride.durationMin
+                  ? `${ride.durationMin} mins travel time`
+                  : 'Direct corridor'}
+              </Text>
             </View>
 
-            <View style={styles.driverInfo}>
-              <View style={styles.inline}>
-                <Text style={styles.driverName}>{driverName}</Text>
+            <View style={styles.heroPriceBadge}>
+              <Text style={styles.heroPriceValue}>
+                {formatCurrency(pricePerSeat, currency)}
+              </Text>
+              <Text style={styles.heroPricePerSeat}>per seat</Text>
+            </View>
+          </View>
 
-                {driver.verified ? (
-                  <Ionicons
-                    name="shield-checkmark"
-                    size={16}
-                    color={colors.primary}
-                    style={styles.tick}
-                  />
+          <View style={styles.heroRouteRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroTime}>
+                {ride.departureTime || '--:--'}
+              </Text>
+              <Text style={styles.heroPlace} numberOfLines={2}>
+                {ride.from || 'Origin'}
+              </Text>
+            </View>
+
+            <Icon
+              name="ray-start-end"
+              size={22}
+              color={C.accent}
+              style={{ marginHorizontal: 12 }}
+            />
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroTime}>
+                {ride.arrivalTime || '--:--'}
+              </Text>
+              <Text style={styles.heroPlace} numberOfLines={2}>
+                {ride.to || 'Destination'}
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* Driver Profile */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Driver & Vehicle</Text>
+
+          <View style={styles.driverRow}>
+            <View style={styles.avatarBox}>
+              {driver.photoUrl ? (
+                <Image
+                  source={{ uri: driver.photoUrl }}
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <Text style={styles.avatarText}>
+                  {(driver.name || '?').charAt(0).toUpperCase()}
+                </Text>
+              )}
+            </View>
+
+            <View style={{ flex: 1, marginLeft: 14 }}>
+              <Text style={styles.driverName}>
+                {driver.name || 'Verified Driver'}
+              </Text>
+
+              <View style={styles.ratingRow}>
+                <Icon name="star" size={15} color={C.star} />
+                <Text style={styles.ratingNumber}>
+                  {driver.rating
+                    ? Number(driver.rating).toFixed(1)
+                    : 'New'}
+                </Text>
+
+                {driver.ridesCount ? (
+                  <Text style={styles.ridesCountText}>
+                    {' '}
+                    · {driver.ridesCount} trips
+                  </Text>
                 ) : null}
               </View>
 
-              <View style={styles.inline}>
-                <Ionicons
-                  name="star"
-                  size={13}
-                  color="#F59E0B"
-                />
-                <Text style={styles.note}>
-                  {' '}
-                  {Number.isFinite(Number(driver.rating))
-                    ? Number(driver.rating).toFixed(1)
-                    : 'New'}{' '}
-                  · {Number(driver.ridesCount) || 0} rides
-                </Text>
-              </View>
+              <Text style={styles.vehicleText}>
+                {driver.vehicle || ride.vehicleType || 'Vehicle'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Pickup & Dropoff Itinerary */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Pickup & Dropoff Steps</Text>
+
+          <View style={styles.stepItem}>
+            <Icon
+              name="walk"
+              size={20}
+              color={C.primary}
+              style={styles.stepIcon}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.stepTitle}>Walk to Pickup Point</Text>
+              <Text style={styles.stepDesc}>
+                {ride.pickupDistanceMeters
+                  ? `${formatDistance(
+                      ride.pickupDistanceMeters
+                    )} (${estimateWalkTime(
+                      ride.pickupDistanceMeters
+                    )}) from origin`
+                  : 'At your selected origin point'}
+              </Text>
             </View>
           </View>
 
-          <View style={[styles.inline, styles.vehicle]}>
-            <Ionicons
-              name="car-outline"
-              size={18}
-              color={colors.primary}
+          <View style={styles.stepItem}>
+            <Icon
+              name="car"
+              size={20}
+              color={C.primary}
+              style={styles.stepIcon}
             />
-            <Text style={styles.text}>
-              {' '}
-              {driver.vehicle || 'Vehicle not specified'}
-              {driver.hasAC ? ' · A/C' : ''}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.stepTitle}>Ride in Vehicle</Text>
+              <Text style={styles.stepDesc}>
+                {ride.rideDistanceMeters
+                  ? `${formatDistance(ride.rideDistanceMeters)} route corridor`
+                  : 'Main driving segment'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.stepItem}>
+            <Icon
+              name="map-marker-check"
+              size={20}
+              color={C.success}
+              style={styles.stepIcon}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.stepTitle}>Walk to Destination</Text>
+              <Text style={styles.stepDesc}>
+                {ride.dropoffDistanceMeters
+                  ? `${formatDistance(
+                      ride.dropoffDistanceMeters
+                    )} walk to final destination`
+                  : 'Near your requested destination'}
+              </Text>
+            </View>
           </View>
         </View>
 
-        <Text style={styles.note}>
-          {Number.isFinite(Number(ride.seatsFree))
-            ? Math.max(0, Number(ride.seatsFree))
-            : 'Unknown'}{' '}
-          seats left on this ride.
-        </Text>
+        {/* Selected Passenger Count - Read Only */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Passengers</Text>
+
+          <View style={styles.passengerInfoRow}>
+            <View style={styles.passengerIconBox}>
+              <Icon name="account-group" size={22} color={C.primary} />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.passengerCount}>
+                {passengers} {passengers === 1 ? 'Passenger' : 'Passengers'}
+              </Text>
+              <Text style={styles.passengerSubtext}>
+                Selected on the search results screen
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Fare Summary */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Fare Summary</Text>
+
+          <View style={styles.fareRow}>
+            <Text style={styles.fareLabel}>
+              {formatCurrency(pricePerSeat, currency)} × {passengers} seat(s)
+            </Text>
+            <Text style={styles.fareValue}>
+              {formatCurrency(totalPrice, currency)}
+            </Text>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.fareRow}>
+            <Text style={styles.totalLabel}>Total Fare</Text>
+            <Text style={styles.totalValue}>
+              {formatCurrency(totalPrice, currency)}
+            </Text>
+          </View>
+        </View>
       </ScrollView>
 
-      {/* Fixed booking bar */}
+      {/* Continue Action Bar */}
       <View
         style={[
-          styles.bar2,
-          { paddingBottom: Math.max(insets.bottom, 12) + 12 },
+          styles.bottomBar,
+          { paddingBottom: Math.max(insets.bottom, 16) },
         ]}
       >
-        <View style={styles.totalInfo}>
-          <Text style={styles.barTotal}>
-            Rs. {total.toLocaleString('en-LK')}
-          </Text>
-          <Text style={styles.note}>
-            The driver confirms your request
+        <View>
+          <Text style={styles.bottomPriceLabel}>Total</Text>
+          <Text style={styles.bottomPriceValue}>
+            {formatCurrency(totalPrice, currency)}
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={[
-            styles.bookButton,
-            booking && styles.disabled,
-          ]}
-          onPress={handleBook}
-          disabled={booking}
+        <Pressable
+          onPress={handleContinue}
+          style={styles.continueBtn}
           accessibilityRole="button"
-          accessibilityLabel="Book ride"
         >
-          {booking ? (
-            <ActivityIndicator color={colors.white} />
-          ) : (
-            <Text style={styles.bookText}>Book ride</Text>
-          )}
-        </TouchableOpacity>
+          <Text style={styles.continueBtnText}>Continue</Text>
+          <Icon name="arrow-right" size={18} color={C.surface} />
+        </Pressable>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
+/* =======================================================
+   STYLES
+======================================================= */
+
 const styles = StyleSheet.create({
-  page: {
+  container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: C.background,
   },
-  content: {
-    padding: 16,
-    paddingBottom: 24,
-  },
-  date: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.secondary,
-    marginBottom: 12,
-  },
-  card: {
-    backgroundColor: colors.white,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.secondary,
-    marginBottom: 10,
-  },
-  stop: {
+  topBar: {
+    height: 54,
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 28,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    backgroundColor: C.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
   },
-  time: {
-    width: 60,
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: colors.text,
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  duration: {
-    width: 60,
-    fontSize: 12,
-    color: colors.text,
-    opacity: 0.7,
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: C.text,
   },
-  dot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    backgroundColor: colors.white,
-    marginHorizontal: 12,
+  scrollContent: {
+    padding: 16,
   },
-  dotEnd: {
-    backgroundColor: colors.primary,
+  heroCard: {
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
   },
-  bar: {
-    width: 2,
-    height: 24,
-    backgroundColor: colors.border,
-    marginLeft: 5,
-    marginRight: 19,
-  },
-  spacer: {
-    flex: 1,
-  },
-  place: {
-    flex: 1,
-    fontSize: 15,
-    color: colors.text,
-  },
-  text: {
-    fontSize: 14,
-    color: colors.text,
-    flexShrink: 1,
-  },
-  note: {
-    fontSize: 12,
-    color: colors.text,
-    opacity: 0.7,
-    marginTop: 4,
-  },
-  priceRow: {
+  heroTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
+    marginBottom: 16,
   },
-  priceTotal: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.primary,
+  heroDate: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  heroDuration: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  heroPriceBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  heroPriceValue: {
+    color: C.surface,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  heroPricePerSeat: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+  },
+  heroRouteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  heroTime: {
+    color: C.surface,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  heroPlace: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  card: {
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: C.text,
+    marginBottom: 12,
   },
   driverRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.primary,
+  avatarBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: C.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 52,
+    height: 52,
   },
   avatarText: {
-    color: colors.white,
-    fontWeight: 'bold',
-    fontSize: 18,
-  },
-  driverInfo: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  inline: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    color: C.surface,
+    fontSize: 20,
+    fontWeight: '800',
   },
   driverName: {
     fontSize: 16,
+    fontWeight: '800',
+    color: C.text,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+  },
+  ratingNumber: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.text,
+    marginLeft: 3,
+  },
+  ridesCountText: {
+    fontSize: 12,
+    color: C.textMuted,
+  },
+  vehicleText: {
+    fontSize: 13,
+    color: C.textMuted,
+    marginTop: 3,
+  },
+  stepItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+  },
+  stepIcon: {
+    marginRight: 12,
+    marginTop: 2,
+  },
+  stepTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: C.text,
+  },
+  stepDesc: {
+    fontSize: 12,
+    color: C.textMuted,
+    marginTop: 2,
+  },
+  passengerInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passengerIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: C.tint,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  passengerCount: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: C.text,
+  },
+  passengerSubtext: {
+    fontSize: 12,
+    color: C.textMuted,
+    marginTop: 3,
+  },
+  fareRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 4,
+  },
+  fareLabel: {
+    fontSize: 14,
+    color: C.textMuted,
+  },
+  fareValue: {
+    fontSize: 14,
     fontWeight: '600',
-    color: colors.text,
+    color: C.text,
   },
-  tick: {
-    marginLeft: 6,
+  divider: {
+    height: 1,
+    backgroundColor: C.border,
+    marginVertical: 8,
   },
-  vehicle: {
-    marginTop: 12,
+  totalLabel: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: C.text,
   },
-  bar2: {
+  totalValue: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: C.primary,
+  },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: C.surface,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+    paddingTop: 12,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.white,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 12,
   },
-  totalInfo: {
-    flex: 1,
+  bottomPriceLabel: {
+    fontSize: 12,
+    color: C.textMuted,
   },
-  barTotal: {
+  bottomPriceValue: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.text,
+    fontWeight: '800',
+    color: C.primary,
   },
-  bookButton: {
-    backgroundColor: colors.primary,
+  continueBtn: {
+    backgroundColor: C.primary,
+    paddingHorizontal: 24,
+    height: 48,
     borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    minWidth: 130,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
   },
-  disabled: {
-    opacity: 0.6,
-  },
-  bookText: {
-    color: colors.white,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  errorPage: {
-    flex: 1,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    gap: 12,
-  },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.secondary,
+  continueBtnText: {
+    color: C.surface,
+    fontSize: 15,
+    fontWeight: '800',
   },
 });

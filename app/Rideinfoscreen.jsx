@@ -1,8 +1,10 @@
-
-import React, { useState } from "react";
-import { useLocalSearchParams, useRouter } from "expo-router";
-
+// PAGE 2: PublishDetailsScreen (file: Rideinfoscreen.jsx)
+// Reads the selected route from RouteContext and saves ride details there.
+// Final publishing is handled by RidePreferencesScreen.jsx.
+import React, { useCallback, useState } from "react";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -14,15 +16,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import RideDetails from "../components/map/RideDetails";
-import PublishButton from "../components/map/PublishButton";
-import { COLORS } from "../theme/mapColors";
-import { publishRide } from "../api/map/routeApi";
-
+import { useRoute } from "../context/RouteContext";
+import useVehicles from "../hooks/useVehicles";
 
 // Indigo & Violet theme
 const THEME = {
@@ -38,26 +37,6 @@ const THEME = {
   lightPrimary: "#EEECFF",
 };
 
-// Two example vehicles
-const MOCK_VEHICLES = [
-  {
-    id: "v1",
-    name: "Toyota Axio",
-    plate: "CAB-1234",
-    type: "car",
-    seats: 4,
-    hasAC: true,
-  },
-  {
-    id: "v2",
-    name: "Suzuki Alto",
-    plate: "KY-5678",
-    type: "car",
-    seats: 3,
-    hasAC: false,
-  },
-];
-
 const TYPE_ICON = {
   car: "car-outline",
   van: "bus-outline",
@@ -68,7 +47,6 @@ const TYPE_ICON = {
 function getDefaultDeparture() {
   const d = new Date();
   d.setHours(d.getHours() + 1, 0, 0, 0);
-
   const pad = (n) => String(n).padStart(2, "0");
 
   return {
@@ -80,23 +58,28 @@ function getDefaultDeparture() {
 export default function PublishDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-
-  const route = params.route ? JSON.parse(params.route) : null;
+  const { routeData, rideDetails, saveRideDetails } = useRoute();
 
   const [defaultDeparture] = useState(getDefaultDeparture);
-
-  const [departureDate, setDepartureDate] = useState(
-    defaultDeparture.date
+  const [departureDate, setDepartureDate] = useState(() => rideDetails?.departureDate ?? defaultDeparture.date);
+  const [departureTime, setDepartureTime] = useState(() => rideDetails?.departureTime ?? defaultDeparture.time);
+  const [seats, setSeats] = useState(() => rideDetails?.availableSeats ?? 3);
+  const [price, setPrice] = useState(() =>
+    rideDetails?.pricePerSeat != null
+      ? String(rideDetails.pricePerSeat)
+      : params.suggestedPrice || ""
   );
-
-  const [departureTime, setDepartureTime] = useState(
-    defaultDeparture.time
-  );
-
-  const [seats, setSeats] = useState(3);
-  const [price, setPrice] = useState(params.suggestedPrice || "");
-  const [vehicle, setVehicle] = useState(null);
+  const [vehicle, setVehicle] = useState(() => rideDetails?.vehicle ?? null);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  // Vehicles come from the auth/vehicle service (4001) via VehicleContext
+  const { vehicles, loading: vehiclesLoading, error: vehiclesError, fetchVehicles } = useVehicles();
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchVehicles();
+    }, [fetchVehicles])
+  );
 
   function handleSelectVehicle(v) {
     setVehicle(v);
@@ -106,96 +89,50 @@ export default function PublishDetailsScreen() {
 
   function handleAddVehicle() {
     setSheetOpen(false);
-
-    router.replace('./Addvehical')
+    // push (not replace) so the user can come back and keep this form.
+    router.push("./Addvehical");
   }
 
-  async function handlePublish() {
-    if (!route) {
-      return Alert.alert(
-        "Missing route",
-        "Please go back and choose a route."
-      );
+  function handleContinue() {
+    if (!routeData?.geometry?.coordinates?.length) {
+      return Alert.alert("Missing route", "Please go back and choose a route.");
     }
 
     if (
       !/^\d{4}-\d{2}-\d{2}$/.test(departureDate) ||
       !/^\d{2}:\d{2}$/.test(departureTime)
     ) {
-      return Alert.alert(
-        "Invalid date or time",
-        "Use YYYY-MM-DD and HH:MM."
-      );
+      return Alert.alert("Invalid date or time", "Use YYYY-MM-DD and HH:MM.");
     }
 
-    if (
-      !Number.isInteger(seats) ||
-      seats < 1 ||
-      seats > 8
-    ) {
-      return Alert.alert(
-        "Invalid seats",
-        "Choose between 1 and 8 seats."
-      );
+    if (!Number.isInteger(seats) || seats < 1 || seats > 8) {
+      return Alert.alert("Invalid seats", "Choose between 1 and 8 seats.");
     }
 
     const numericPrice = Number(price);
-
     if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
-      return Alert.alert(
-        "Invalid price",
-        "Enter a price greater than zero."
-      );
+      return Alert.alert("Invalid price", "Enter a price greater than zero.");
     }
 
-    if (!vehicle) {
-      return Alert.alert(
-        "No vehicle",
-        "Please choose a vehicle."
-      );
+    if (!vehicle?.id) {
+      return Alert.alert("No vehicle", "Please choose a vehicle.");
     }
 
-    const rideData = {
-      origin: route.origin,
-      destination: route.destination,
+    saveRideDetails({
+      vehicle,
+      vehicleId: vehicle.id,
       departureDate,
       departureTime,
       availableSeats: seats,
       pricePerSeat: numericPrice,
-      vehicleId: vehicle.id,
-    };
+    });
 
-    try {
-      const result = await publishRide(rideData);
-
-      Alert.alert(
-        "Ride published!",
-        result.message ||
-          "Your ride was saved successfully.",
-        [
-          {
-            text: "OK",
-            onPress: () =>
-              router.replace("/rideDetailsScreen"),
-          },
-        ]
-      );
-    } catch (error) {
-      console.error("Publish ride error:", error);
-
-      Alert.alert(
-        "Could not publish ride",
-        error.message
-      );
-    }
+    router.push("/RidePreferencesScreen");
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor={THEME.background}
-      />
+      <StatusBar barStyle="dark-content" backgroundColor={THEME.background} />
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -203,25 +140,15 @@ export default function PublishDetailsScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* Back button */}
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.back}
-        >
-          <Ionicons
-            name="arrow-back"
-            size={22}
-            color={THEME.secondary}
-          />
+        <TouchableOpacity onPress={() => router.back()} style={styles.back}>
+          <Ionicons name="arrow-back" size={22} color={THEME.secondary} />
         </TouchableOpacity>
 
         {/* Page heading */}
-        <Text style={styles.title}>
-          Ride details
-        </Text>
-
+        <Text style={styles.title}>Ride details</Text>
         <Text style={styles.subtitle}>
-          {route
-            ? `${route.origin.placeName} → ${route.destination.placeName}`
+          {routeData
+            ? `${routeData.origin.placeName} → ${routeData.destination.placeName}`
             : "When and how?"}
         </Text>
 
@@ -243,46 +170,24 @@ export default function PublishDetailsScreen() {
         <View style={styles.vehicleSection}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionTitle}>
-                Your vehicle
-              </Text>
-
-              <Text style={styles.sectionSubtitle}>
-                Choose the vehicle for this ride
-              </Text>
+              <Text style={styles.sectionTitle}>Your vehicle</Text>
+              <Text style={styles.sectionSubtitle}>Choose the vehicle for this ride</Text>
             </View>
 
             <View style={styles.carBadge}>
-              <Ionicons
-                name="car-outline"
-                size={18}
-                color={THEME.primary}
-              />
+              <Ionicons name="car-outline" size={18} color={THEME.primary} />
             </View>
           </View>
 
           {vehicle ? (
-            <VehicleCard
-              vehicle={vehicle}
-              selected
-            />
+            <VehicleCard vehicle={vehicle} selected />
           ) : (
             <View style={styles.emptyVehicle}>
               <View style={styles.emptyIcon}>
-                <Ionicons
-                  name="car-sport-outline"
-                  size={30}
-                  color={THEME.primary}
-                />
+                <Ionicons name="car-sport-outline" size={30} color={THEME.primary} />
               </View>
-
-              <Text style={styles.emptyTitle}>
-                No vehicle selected
-              </Text>
-
-              <Text style={styles.emptyText}>
-                Select a registered vehicle to continue.
-              </Text>
+              <Text style={styles.emptyTitle}>No vehicle selected</Text>
+              <Text style={styles.emptyText}>Select a registered vehicle to continue.</Text>
             </View>
           )}
 
@@ -296,21 +201,31 @@ export default function PublishDetailsScreen() {
               size={20}
               color={THEME.white}
             />
-
             <Text style={styles.vehicleButtonText}>
               {vehicle ? "Change vehicle" : "Choose vehicle"}
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Publish */}
-        <PublishButton onPress={handlePublish} />
+        {/* Continue to ride preferences */}
+        <TouchableOpacity
+          style={styles.vehicleButton}
+          onPress={handleContinue}
+        >
+          <Text style={styles.vehicleButtonText}>
+            Continue to ride preferences
+          </Text>
+          <Ionicons name="arrow-forward" size={19} color={THEME.white} />
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Vehicle selection modal */}
       <VehicleSheet
         visible={sheetOpen}
-        vehicles={MOCK_VEHICLES}
+        vehicles={vehicles}
+        loading={vehiclesLoading}
+        error={vehiclesError}
+        onRetry={fetchVehicles}
         selectedId={vehicle?.id}
         onClose={() => setSheetOpen(false)}
         onSelect={handleSelectVehicle}
@@ -324,14 +239,7 @@ export default function PublishDetailsScreen() {
 // VEHICLE SELECTION BOTTOM SHEET
 // =====================================
 
-function VehicleSheet({
-  visible,
-  vehicles,
-  selectedId,
-  onClose,
-  onSelect,
-  onAddVehicle,
-}) {
+function VehicleSheet({ visible, vehicles, loading, error, onRetry, selectedId, onClose, onSelect, onAddVehicle }) {
   return (
     <Modal
       visible={visible}
@@ -342,30 +250,18 @@ function VehicleSheet({
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-
         {/* Dark transparent background */}
-        <Pressable
-          style={styles.backdrop}
-          onPress={onClose}
-        />
+        <Pressable style={styles.backdrop} onPress={onClose} />
 
         {/* Bottom sheet */}
-        <SafeAreaView
-          style={styles.sheet}
-          edges={["bottom"]}
-        >
+        <SafeAreaView style={styles.sheet} edges={["bottom"]}>
           <View style={styles.handle} />
 
           {/* Sheet heading */}
           <View style={styles.sheetHeader}>
             <View style={styles.sheetHeadingContent}>
-              <Text style={styles.sheetTitle}>
-                My Vehicles
-              </Text>
-
-              <Text style={styles.sheetSubtitle}>
-                Select a vehicle for your ride
-              </Text>
+              <Text style={styles.sheetTitle}>My Vehicles</Text>
+              <Text style={styles.sheetSubtitle}>Select a vehicle for your ride</Text>
             </View>
 
             {/* Add vehicle button */}
@@ -374,26 +270,14 @@ function VehicleSheet({
               onPress={onAddVehicle}
               activeOpacity={0.8}
             >
-              <Ionicons
-                name="add"
-                size={20}
-                color={THEME.white}
-              />
-
-              <Text style={styles.addVehicleText}>
-                Add Vehicle
-              </Text>
+              <Ionicons name="add" size={20} color={THEME.white} />
+              <Text style={styles.addVehicleText}>Add Vehicle</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.listLabel}>
-            <Text style={styles.listLabelText}>
-              REGISTERED VEHICLES
-            </Text>
-
-            <Text style={styles.vehicleCount}>
-              {vehicles.length}
-            </Text>
+            <Text style={styles.listLabelText}>REGISTERED VEHICLES</Text>
+            <Text style={styles.vehicleCount}>{vehicles ? vehicles.length : 0}</Text>
           </View>
 
           <FlatList
@@ -402,44 +286,37 @@ function VehicleSheet({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.vehicleList}
             ListEmptyComponent={
-              <View style={styles.emptyList}>
-                <Ionicons
-                  name="car-outline"
-                  size={40}
-                  color={THEME.muted}
-                />
-
-                <Text style={styles.emptyTitle}>
-                  No registered vehicles
-                </Text>
-
-                <Text style={styles.emptyText}>
-                  Add your vehicle to publish a ride.
-                </Text>
-              </View>
+              loading ? (
+                <View style={styles.emptyList}>
+                  <ActivityIndicator color={THEME.primary} />
+                </View>
+              ) : error ? (
+                <View style={styles.emptyList}>
+                  <Ionicons name="alert-circle-outline" size={40} color={THEME.muted} />
+                  <Text style={styles.emptyTitle}>Couldn't load vehicles</Text>
+                  <Text style={styles.emptyText}>{error}</Text>
+                  <TouchableOpacity onPress={onRetry}>
+                    <Text style={[styles.emptyText, { color: THEME.primary, fontWeight: "700" }]}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.emptyList}>
+                  <Ionicons name="car-outline" size={40} color={THEME.muted} />
+                  <Text style={styles.emptyTitle}>No registered vehicles</Text>
+                  <Text style={styles.emptyText}>Add your vehicle to publish a ride.</Text>
+                </View>
+              )
             }
             renderItem={({ item }) => (
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => onSelect(item)}
-              >
-                <VehicleCard
-                  vehicle={item}
-                  selected={item.id === selectedId}
-                />
+              <TouchableOpacity activeOpacity={0.8} onPress={() => onSelect(item)}>
+                <VehicleCard vehicle={item} selected={item.id === selectedId} />
               </TouchableOpacity>
             )}
           />
 
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={onClose}
-          >
-            <Text style={styles.cancelText}>
-              Cancel
-            </Text>
+          <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+            <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
-
         </SafeAreaView>
       </View>
     </Modal>
@@ -452,18 +329,8 @@ function VehicleSheet({
 
 function VehicleCard({ vehicle, selected }) {
   return (
-    <View
-      style={[
-        styles.vehicleCard,
-        selected && styles.vehicleSelected,
-      ]}
-    >
-      <View
-        style={[
-          styles.vehicleIcon,
-          selected && styles.vehicleIconSelected,
-        ]}
-      >
+    <View style={[styles.vehicleCard, selected && styles.vehicleSelected]}>
+      <View style={[styles.vehicleIcon, selected && styles.vehicleIconSelected]}>
         <Ionicons
           name={TYPE_ICON[vehicle.type] || "car-outline"}
           size={25}
@@ -472,47 +339,24 @@ function VehicleCard({ vehicle, selected }) {
       </View>
 
       <View style={styles.vehicleInfo}>
-        <Text style={styles.vehicleName}>
-          {vehicle.name}
-        </Text>
-
-        <Text style={styles.vehiclePlate}>
-          {vehicle.plate}
-        </Text>
+        <Text style={styles.vehicleName}>{vehicle.name}</Text>
+        <Text style={styles.vehiclePlate}>{vehicle.plate}</Text>
 
         <View style={styles.vehicleMeta}>
           <View style={styles.metaItem}>
-            <Ionicons
-              name="people-outline"
-              size={14}
-              color={THEME.muted}
-            />
-
-            <Text style={styles.metaText}>
-              {vehicle.seats} seats
-            </Text>
+            <Ionicons name="people-outline" size={14} color={THEME.muted} />
+            <Text style={styles.metaText}>{vehicle.seats} seats</Text>
           </View>
 
           <View style={styles.metaItem}>
-            <Ionicons
-              name="snow-outline"
-              size={14}
-              color={THEME.muted}
-            />
-
-            <Text style={styles.metaText}>
-              {vehicle.hasAC ? "A/C" : "Non A/C"}
-            </Text>
+            <Ionicons name="snow-outline" size={14} color={THEME.muted} />
+            <Text style={styles.metaText}>{vehicle.hasAC ? "A/C" : "Non A/C"}</Text>
           </View>
         </View>
       </View>
 
       {selected ? (
-        <Ionicons
-          name="checkmark-circle"
-          size={24}
-          color={THEME.primary}
-        />
+        <Ionicons name="checkmark-circle" size={24} color={THEME.primary} />
       ) : (
         <View style={styles.unselectedCircle} />
       )}
@@ -525,10 +369,7 @@ function VehicleCard({ vehicle, selected }) {
 // =====================================
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: THEME.background,
-  },
+  safeArea: { flex: 1, backgroundColor: THEME.background },
 
   content: {
     flexGrow: 1,
@@ -572,9 +413,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
 
-  vehicleSection: {
-    marginBottom: 24,
-  },
+  vehicleSection: { marginBottom: 24 },
 
   sectionHeader: {
     flexDirection: "row",
@@ -583,17 +422,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
 
-  sectionTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: THEME.text,
-  },
-
-  sectionSubtitle: {
-    fontSize: 12,
-    color: THEME.muted,
-    marginTop: 4,
-  },
+  sectionTitle: { fontSize: 19, fontWeight: "800", color: THEME.text },
+  sectionSubtitle: { fontSize: 12, color: THEME.muted, marginTop: 4 },
 
   carBadge: {
     width: 42,
@@ -624,19 +454,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: THEME.text,
-    marginTop: 8,
-  },
-
-  emptyText: {
-    fontSize: 12,
-    color: THEME.muted,
-    marginTop: 5,
-    textAlign: "center",
-  },
+  emptyTitle: { fontSize: 15, fontWeight: "700", color: THEME.text, marginTop: 8 },
+  emptyText: { fontSize: 12, color: THEME.muted, marginTop: 5, textAlign: "center" },
 
   vehicleButton: {
     flexDirection: "row",
@@ -649,18 +468,10 @@ const styles = StyleSheet.create({
     gap: 9,
   },
 
-  vehicleButtonText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: THEME.white,
-  },
+  vehicleButtonText: { fontSize: 14, fontWeight: "700", color: THEME.white },
 
   // Modal overlay
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "transparent",
-  },
+  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "transparent" },
 
   backdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -695,21 +506,9 @@ const styles = StyleSheet.create({
     marginBottom: 25,
   },
 
-  sheetHeadingContent: {
-    flex: 1,
-  },
-
-  sheetTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: THEME.text,
-  },
-
-  sheetSubtitle: {
-    fontSize: 12,
-    color: THEME.muted,
-    marginTop: 5,
-  },
+  sheetHeadingContent: { flex: 1 },
+  sheetTitle: { fontSize: 22, fontWeight: "800", color: THEME.text },
+  sheetSubtitle: { fontSize: 12, color: THEME.muted, marginTop: 5 },
 
   addVehicleButton: {
     flexDirection: "row",
@@ -722,11 +521,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
 
-  addVehicleText: {
-    color: THEME.white,
-    fontSize: 12,
-    fontWeight: "700",
-  },
+  addVehicleText: { color: THEME.white, fontSize: 12, fontWeight: "700" },
 
   listLabel: {
     flexDirection: "row",
@@ -752,9 +547,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  vehicleList: {
-    paddingBottom: 12,
-  },
+  vehicleList: { paddingBottom: 12 },
 
   vehicleCard: {
     flexDirection: "row",
@@ -768,10 +561,7 @@ const styles = StyleSheet.create({
     gap: 13,
   },
 
-  vehicleSelected: {
-    borderColor: THEME.primary,
-    backgroundColor: "#F4F2FF",
-  },
+  vehicleSelected: { borderColor: THEME.primary, backgroundColor: "#F4F2FF" },
 
   vehicleIcon: {
     width: 52,
@@ -782,25 +572,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  vehicleIconSelected: {
-    backgroundColor: THEME.primary,
-  },
+  vehicleIconSelected: { backgroundColor: THEME.primary },
 
-  vehicleInfo: {
-    flex: 1,
-  },
-
-  vehicleName: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: THEME.text,
-  },
-
-  vehiclePlate: {
-    fontSize: 12,
-    color: THEME.muted,
-    marginTop: 3,
-  },
+  vehicleInfo: { flex: 1 },
+  vehicleName: { fontSize: 15, fontWeight: "800", color: THEME.text },
+  vehiclePlate: { fontSize: 12, color: THEME.muted, marginTop: 3 },
 
   vehicleMeta: {
     flexDirection: "row",
@@ -809,17 +585,8 @@ const styles = StyleSheet.create({
     marginTop: 9,
   },
 
-  metaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-
-  metaText: {
-    fontSize: 11,
-    color: THEME.muted,
-    fontWeight: "500",
-  },
+  metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  metaText: { fontSize: 11, color: THEME.muted, fontWeight: "500" },
 
   unselectedCircle: {
     width: 21,
@@ -829,10 +596,7 @@ const styles = StyleSheet.create({
     borderColor: THEME.border,
   },
 
-  emptyList: {
-    alignItems: "center",
-    paddingVertical: 35,
-  },
+  emptyList: { alignItems: "center", paddingVertical: 35 },
 
   cancelButton: {
     borderRadius: 14,
@@ -845,9 +609,5 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
-  cancelText: {
-    color: THEME.secondary,
-    fontSize: 14,
-    fontWeight: "700",
-  },
+  cancelText: { color: THEME.secondary, fontSize: 14, fontWeight: "700" },
 });
