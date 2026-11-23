@@ -10,6 +10,9 @@ const index = () => {
       <Link href={'/publish-ride'} > publish-ride </Link>
       
       <Link href={'/register'} > register  </Link>
+
+      <Link href={'/booking'} > booking  </Link>
+
       <Link href={'/profile'} > profile  </Link>
       <Link href={'/Vehicle'} > vehical more details  </Link>
        <Link href={'/OsrmRouteScreen'} > vehical more details 1 </Link>
