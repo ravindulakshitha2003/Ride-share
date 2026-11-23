@@ -1,35 +1,26 @@
-import { StyleSheet, Text, View } from 'react-native'
-import React from 'react'
 import { Stack } from 'expo-router';
+
 import { AuthProvider } from '../context/authContext';
-import { RouteProvider } from "../context/RouteContext";
+import { NotificationProvider } from '../context/notificationContext';
+import { RouteProvider } from '../context/RouteContext';
 import { VehicleProvider } from '../context/VehicleContext';
 
-const _layout = () => {
+const RootLayout = () => {
   return (
-     <AuthProvider>
-      <RouteProvider>
-        <VehicleProvider>
+    <AuthProvider>
+      <NotificationProvider>
+        <RouteProvider>
+          <VehicleProvider>
             <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen  name='index' screenOptions={{
-                headerStyle: {
-                  backgroundColor: '#f4511e',
-                },
-                headerTintColor: '#fff',
-                headerTitleStyle: {
-                  fontWeight: 'bold',
-                }
-            }} />
-    
-
-    </Stack >
-
-    </VehicleProvider>
-    </RouteProvider>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="(auth)" />
+              <Stack.Screen name="(dashbord)" />
+            </Stack>
+          </VehicleProvider>
+        </RouteProvider>
+      </NotificationProvider>
     </AuthProvider>
-  )
-}
+  );
+};
 
-export default _layout
-
-const styles = StyleSheet.create({})
+export default RootLayout;
