@@ -21,10 +21,10 @@ const index = () => {
       <Link href={'/profile'} > profile  </Link>
       <Link href={'/Vehicle'} > vehical more details  </Link>
      <Link href={'/notifications'} > notifications4  </Link>
-     </View>
+    
        <Link href={'/OsrmRouteScreen'} > vehical more details 1 </Link>
        <Link href={'/RouteSelectScreen'} > vehical more details2  </Link>
-           <Link href={'/NotificationScreen'} > notification  </Link>
+      <Link href={'/NotificationScreen'} > notification  </Link>
     </View>
   )
 }

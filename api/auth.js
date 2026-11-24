@@ -124,7 +124,9 @@ export async function registerUser(payload) {
 }
 
 export async function loginUser({ email, password }) {
+   
   const { data } = await client.post('/api/auth/login', { email, password });
+  console.log(data);
   return data; // { message, user, token }
 }
 
