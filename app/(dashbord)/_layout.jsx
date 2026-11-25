@@ -5,6 +5,7 @@ import { colors } from '../../theme/colors';
 import { useNotifications } from '../../context/notificationContext';
 import { AuthProvider } from '../../context/authContext';
 import AuthGate from '../../components/AuthGate';
+import DriverAccess from '../driver-access';
 
 export default function DashboardLayout() {
   const { unreadCount } = useNotifications();
@@ -132,7 +133,7 @@ export default function DashboardLayout() {
               ),
             }}
           />
-
+         
           {/* Publish Ride */}
           <Tabs.Screen
             name="publish-ride"
