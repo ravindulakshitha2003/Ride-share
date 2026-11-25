@@ -1,20 +1,17 @@
-
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../../theme/colors';
+import { useNotifications } from '../../context/notificationContext';
 import { AuthProvider } from '../../context/authContext';
 import AuthGate from '../../components/AuthGate';
 
-
-
-
-
 export default function DashboardLayout() {
+  const { unreadCount } = useNotifications();
+
   return (
     <AuthProvider>
       <AuthGate>
-   
         <Tabs
           screenOptions={{
             headerShown: false,
@@ -56,6 +53,7 @@ export default function DashboardLayout() {
             tabBarHideOnKeyboard: true,
           }}
         >
+          {/* My Rides */}
           <Tabs.Screen
             name="rideDetailsScreen"
             options={{
@@ -70,6 +68,7 @@ export default function DashboardLayout() {
             }}
           />
 
+          {/* Explore */}
           <Tabs.Screen
             name="resultsScreen"
             options={{
@@ -83,27 +82,50 @@ export default function DashboardLayout() {
               ),
             }}
           />
+
+          {/* Notifications */}
           <Tabs.Screen
-            name="NotificationScreen"
+            name="notifications"
             options={{
-              title: 'nitify',
+              title: 'Alerts',
               tabBarIcon: ({ focused, color }) => (
                 <Ionicons
-                  name={focused ? 'barbell' : 'bar-chart-outline'}
+                  name={
+                    focused
+                      ? 'notifications'
+                      : 'notifications-outline'
+                  }
                   size={25}
                   color={color}
                 />
               ),
+              tabBarBadge:
+                unreadCount > 0
+                  ? unreadCount > 99
+                    ? '99+'
+                    : unreadCount
+                  : undefined,
+              tabBarBadgeStyle: {
+                backgroundColor: colors.error,
+                color: colors.white,
+                fontSize: 10,
+                fontWeight: '700',
+              },
             }}
           />
 
+          {/* Profile */}
           <Tabs.Screen
             name="profile"
             options={{
               title: 'Profile',
               tabBarIcon: ({ focused, color }) => (
                 <Ionicons
-                  name={focused ? 'person-circle' : 'person-circle-outline'}
+                  name={
+                    focused
+                      ? 'person-circle'
+                      : 'person-circle-outline'
+                  }
                   size={25}
                   color={color}
                 />
@@ -111,13 +133,18 @@ export default function DashboardLayout() {
             }}
           />
 
+          {/* Publish Ride */}
           <Tabs.Screen
             name="publish-ride"
             options={{
               title: 'Publish Ride',
               tabBarIcon: ({ focused, color }) => (
                 <Ionicons
-                  name={focused ? 'add-circle' : 'add-circle-outline'}
+                  name={
+                    focused
+                      ? 'add-circle'
+                      : 'add-circle-outline'
+                  }
                   size={25}
                   color={color}
                 />
@@ -125,6 +152,7 @@ export default function DashboardLayout() {
             }}
           />
 
+          {/* Hidden screen - still navigable */}
           <Tabs.Screen
             name="Rideinfoscreen"
             options={{
@@ -132,8 +160,7 @@ export default function DashboardLayout() {
             }}
           />
         </Tabs>
-        </AuthGate>
-
+      </AuthGate>
     </AuthProvider>
   );
 }
