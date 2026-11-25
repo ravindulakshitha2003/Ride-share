@@ -86,13 +86,15 @@ export default function Login() {
   const router = useRouter();
 
   // Get the login function from AuthContext.
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const busy = submitting || googleLoading;
 
   // Ask for notification permission + create the Android channel once.
   useEffect(() => {
@@ -118,7 +120,7 @@ export default function Login() {
 
   // Handle the login button.
   async function handleLogin() {
-    if (submitting) return;
+    if (busy) return;
     setApiError('');
     const validationErrors = validate();
     setErrors(validationErrors);
@@ -128,7 +130,6 @@ export default function Login() {
     setSubmitting(true);
 
     try {
-      console.log("sed")
       // Calls POST /api/auth/login on the auth service (port 4001).
       const profile = await login(email.trim().toLowerCase(), password);
 
@@ -147,6 +148,45 @@ export default function Login() {
       await notify('Login failed', message);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // Handle the "Continue with Google" button.
+  async function handleGoogleLogin() {
+    if (busy) return;
+    setApiError('');
+    setGoogleLoading(true);
+
+    try {
+      const result = await loginWithGoogle();
+
+      if (result.status === 'cancelled') return;
+
+      if (result.status === 'needsProfile') {
+        // New person: ask for the mobile number to finish signing up.
+        router.push({
+          pathname: '/(auth)/complete-google-profile',
+          params: {
+            googleSignupToken: result.googleSignupToken,
+            name: result.profile?.name ?? '',
+            email: result.profile?.email ?? '',
+            picture: result.profile?.picture ?? '',
+          },
+        });
+        return;
+      }
+
+      await notify(
+        'Login successful',
+        `Welcome back, ${result.user?.name ?? 'rider'}!`
+      );
+      router.replace(DASHBOARD_ROUTE);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setApiError(message);
+      await notify('Google sign-in failed', message);
+    } finally {
+      setGoogleLoading(false);
     }
   }
 
@@ -218,15 +258,38 @@ export default function Login() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.button, submitting && styles.buttonDisabled]}
+          style={[styles.button, busy && styles.buttonDisabled]}
           onPress={handleLogin}
-          disabled={submitting}
+          disabled={busy}
           activeOpacity={0.8}
         >
           {submitting ? (
             <ActivityIndicator color={colors.white} />
           ) : (
             <Text style={styles.buttonText}>Log in</Text>
+          )}
+        </TouchableOpacity>
+
+        <View style={styles.dividerRow}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>or</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+        <TouchableOpacity
+          style={[styles.googleButton, busy && styles.buttonDisabled]}
+          onPress={handleGoogleLogin}
+          disabled={busy}
+          activeOpacity={0.8}
+          accessibilityLabel="Continue with Google"
+        >
+          {googleLoading ? (
+            <ActivityIndicator color={colors.text} />
+          ) : (
+            <>
+              <Ionicons name="logo-google" size={20} color="#DB4437" />
+              <Text style={styles.googleButtonText}>Continue with Google</Text>
+            </>
           )}
         </TouchableOpacity>
 
@@ -339,6 +402,42 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: 'bold',
+  },
+
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+
+  dividerText: {
+    marginHorizontal: 12,
+    color: colors.textMuted,
+  },
+
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingVertical: 13,
+    marginTop: 20,
+  },
+
+  googleButtonText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '600',
   },
 
   footer: {

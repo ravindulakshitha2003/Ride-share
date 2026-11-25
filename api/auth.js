@@ -134,3 +134,31 @@ export async function getMe() {
   const { data } = await client.get('/api/auth/me');
   return data.user ?? data;
 }
+
+// ---- Google sign-in ----
+
+// Step 1: send the Google ID token.
+// Returns { user, token } for a known account, or
+// { needsProfile: true, googleSignupToken, profile } for a new person.
+export async function googleLoginUser(idToken) {
+  const { data } = await client.post('/api/auth/google', { idToken });
+  return data;
+}
+
+// Step 2 (new people only): add the mobile number and create the account.
+export async function googleCompleteSignupUser({
+  googleSignupToken,
+  mobile,
+  name,
+  gender,
+  dateOfBirth,
+}) {
+  const { data } = await client.post('/api/auth/google/complete', {
+    googleSignupToken,
+    mobile: mobile.trim(),
+    ...(name ? { name: name.trim() } : {}),
+    ...(gender ? { gender: GENDER_MAP[gender] || gender } : {}),
+    ...(dateOfBirth ? { dateOfBirth: dateOfBirth.trim() } : {}),
+  });
+  return data; // { message, user, token }
+}

@@ -10,9 +10,12 @@ import * as SecureStore from 'expo-secure-store';
 import { TOKEN_KEY } from '../api/client';
 import {
   getMe,
+  googleCompleteSignupUser,
+  googleLoginUser,
   loginUser,
   registerUser,
 } from '../api/auth';
+import { getGoogleIdToken, googleSignOut } from '../utils/googleSignIn';
 
 const AuthContext = createContext(null);
 
@@ -113,6 +116,58 @@ export function AuthProvider({ children }) {
     }
   }
 
+  // Save the token from a login response and set the user.
+  async function saveSession(data) {
+    const authToken = data?.token ?? data?.accessToken;
+
+    if (!authToken) {
+      throw new Error('Login failed: no token received.');
+    }
+
+    await SecureStore.setItemAsync(TOKEN_KEY, authToken);
+
+    try {
+      const currentUser = data?.user ? data.user : await refreshUser();
+      setUser(currentUser);
+      return currentUser;
+    } catch (error) {
+      await SecureStore.deleteItemAsync(TOKEN_KEY);
+      setUser(null);
+      throw error;
+    }
+  }
+
+  // Google sign-in. Returns one of:
+  //   { status: 'cancelled' }
+  //   { status: 'loggedIn', user }
+  //   { status: 'needsProfile', googleSignupToken, profile }
+  async function loginWithGoogle() {
+    const idToken = await getGoogleIdToken();
+
+    if (!idToken) {
+      return { status: 'cancelled' };
+    }
+
+    const data = await googleLoginUser(idToken);
+
+    if (data?.needsProfile) {
+      return {
+        status: 'needsProfile',
+        googleSignupToken: data.googleSignupToken,
+        profile: data.profile,
+      };
+    }
+
+    const currentUser = await saveSession(data);
+    return { status: 'loggedIn', user: currentUser };
+  }
+
+  // New Google users: send the mobile number and create the account.
+  async function completeGoogleSignup(form) {
+    const data = await googleCompleteSignupUser(form);
+    return saveSession(data);
+  }
+
   // Register a user. Set autoLogin=true if registration returns a token.
   async function register(form, autoLogin = false) {
     const response = await registerUser(form);
@@ -142,6 +197,7 @@ export function AuthProvider({ children }) {
 
   async function logout() {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
+    await googleSignOut();
     setUser(null);
   }
 
@@ -156,6 +212,8 @@ export function AuthProvider({ children }) {
         loading,
         token,
         login,
+        loginWithGoogle,
+        completeGoogleSignup,
         register,
         logout,
         refreshUser,
