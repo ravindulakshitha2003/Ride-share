@@ -23,20 +23,20 @@ const index = () => {
 
 
      <Link href={'/notifications'} > notifications4  </Link>
-<<<<<<< HEAD
+
+
+     
+
+       <Link href={'/OsrmRouteScreen'} > vehical more details 11</Link>
+       <Link href={'/RouteSelectScreen'} > vehical more details21  </Link>
+        <Link href={'/NotificationScreen'} > notification1  </Link>
+        <Link href={'/index2'} > RouteMate Landing Pag1e  </Link>
+
     
        <Link href={'/OsrmRouteScreen'} > vehical more details 1 </Link>
        <Link href={'/RouteSelectScreen'} > vehical more details2  </Link>
       <Link href={'/NotificationScreen'} > notification  </Link>
-=======
 
-     
-
-       <Link href={'/OsrmRouteScreen'} > vehical more details 1 </Link>
-       <Link href={'/RouteSelectScreen'} > vehical more details2  </Link>
-        <Link href={'/NotificationScreen'} > notification  </Link>
-        <Link href={'/index2'} > RouteMate Landing Page  </Link>
->>>>>>> origin/chore/expo-project-setup
     </View>
   )
 }
