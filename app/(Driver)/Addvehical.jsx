@@ -1,30 +1,14 @@
 /**
  * addVehical.jsx
  * ---------------------------------------------------------------------------
- * Self-contained "Add Vehicle" wizard + "My Vehicles" list + details screen.
- * JavaScript only. No backend: a mock API with dummy data lives in this file.
- *
+ * "Add Vehicle" wizard + "My Vehicles" list + details screen.
  * PLACE AT:   app/addVehical.jsx   (Expo Router route: /addVehical)
+ * Colours:    imported from ../../theme/colors  (adjust the path if needed)
  *
  * INSTALL (only what is missing):
  *   npx expo install expo-linear-gradient expo-image-picker expo-document-picker \
  *     expo-haptics @react-native-community/datetimepicker react-native-safe-area-context \
  *     @expo/vector-icons
- *
- * app.json (permissions for camera / photos):
- *   "plugins": [
- *     ["expo-image-picker", {
- *       "photosPermission": "Allow access to your photos to add vehicle pictures.",
- *       "cameraPermission": "Allow camera access to take vehicle pictures."
- *     }]
- *   ]
- *
- * NOTES
- * - Animations use React Native's built-in Animated API (no Reanimated/babel setup).
- * - Validation is written as plain functions (no zod) so the file has no extra deps.
- * - Owner id: pass `ownerId` as a prop, or replace OWNER_FALLBACK with your
- *   useAuth() user id (see the marked line inside AddVehicleModule).
- * - To use a real backend later: replace the `api` object (search "MOCK API").
  */
 
 import React, {
@@ -54,9 +38,10 @@ import {
   AccessibilityInfo,
   Alert,
   Dimensions,
+  Linking,
   findNodeHandle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -64,29 +49,19 @@ import * as Haptics from 'expo-haptics';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { colors } from '../../theme/colors';
 
 /* ===========================================================================
- * 1. THEME TOKENS
+ * 1. THEME TOKENS  (all colours come from theme/colors.js)
  * ========================================================================= */
 const C = {
-  primary: '#5B4BDB',
-  secondary: '#312E81',
-  accent: '#F0ABFC',
-  background: '#F8F7FF',
-  text: '#24213B',
-  textMuted: 'rgba(36,33,59,0.6)',
-  white: '#FFFFFF',
-  border: '#E4E1F5',
-  tint: '#EEEBFF',
-  gradientEnd: '#E9E4FF',
-  danger: '#DC2626',
-  dangerSoft: '#FEF2F2',
+  ...colors,
   status: {
-    pending: '#F59E0B',
-    approved: '#16A34A',
-    rejected: '#DC2626',
-    inactive: '#6B7280',
-    expired: '#EA580C',
+    pending: colors.warning,
+    approved: colors.success,
+    rejected: colors.error,
+    inactive: colors.grey,
+    expired: colors.amber,
   },
 };
 const R = { sm: 12, md: 16, lg: 24, xl: 28, pill: 999 };
@@ -107,16 +82,19 @@ const MIN_YEAR = 1990;
 const CURRENT_YEAR = new Date().getFullYear();
 const PLATE_RE = /^[A-Z0-9-]{2,10}$/;
 
+// How far (px) the bottom buttons sit above the system navigation bar.
+// Increase this number to lift the buttons higher.
+const BOTTOM_LIFT = 70;
+const useBottomSpace = () => {
+  const insets = useSafeAreaInsets();
+  return Math.max(insets.bottom, SP.lg) + BOTTOM_LIFT;
+};
+
 /* ===========================================================================
  * 2. HELPERS
  * ========================================================================= */
 const pad = (n) => String(n).padStart(2, '0');
 const toISO = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const addDays = (n) => {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return toISO(d);
-};
 const daysUntil = (iso) => {
   const [y, m, d] = iso.split('-').map(Number);
   const today = new Date();
@@ -158,72 +136,36 @@ function useReducedMotion() {
 }
 
 /* ===========================================================================
- * 3. MOCK API  (replace this block with real fetch calls later)
+ * 3. API  (real backend - set the URLs and match the endpoints to yours)
  * ========================================================================= */
-const API_CONFIG = { USE_MOCK: true, SIMULATE_FAILURE: false };
-const wait = (min, max = min) =>
-  new Promise((r) => setTimeout(r, min + Math.random() * (max - min)));
-const photo = (seed) => `photos/dummy/${seed}.jpg`;
+const API_BASE_URL = 'http://localhost:4001/api';
+const FILES_BASE_URL = 'https://your-cdn.example.com'; // where fileKey files are served from
 
-const DUMMY_VEHICLES = [
-  {
-    _id: 'veh_001', ownerId: 'user_001', type: 'Car', make: 'Toyota', model: 'Axio', colour: 'White',
-    year: 2018, plateNo: 'ABC1234', seats: 4, hasAC: true, luggage: 'Available',
-    documents: {
-      registration: { fileKey: 'docs/registration/axio-reg.pdf' },
-      revenueLicence: { fileKey: 'docs/revenueLicence/axio-rev.pdf', expiry: addDays(240) },
-      insurance: { fileKey: 'docs/insurance/axio-ins.pdf', expiry: addDays(300) },
+let AUTH_TOKEN = null; // set from the `authToken` prop of the module
+
+async function request(path, options = {}) {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
+      ...(options.headers || {}),
     },
-    photoKeys: [photo('axio-front'), photo('axio-side')],
-    status: 'Approved', createdAt: '2026-08-01T09:00:00.000Z', updatedAt: '2026-08-03T09:00:00.000Z',
-  },
-  {
-    _id: 'veh_002', ownerId: 'user_001', type: 'Van', make: 'Toyota', model: 'HiAce', colour: 'Silver',
-    year: 2016, plateNo: 'CAB5678', seats: 12, hasAC: true, luggage: 'Limited',
-    documents: {
-      registration: { fileKey: 'docs/registration/hiace-reg.pdf' },
-      revenueLicence: { fileKey: 'docs/revenueLicence/hiace-rev.pdf', expiry: addDays(12) },
-      insurance: { fileKey: 'docs/insurance/hiace-ins.pdf', expiry: addDays(180) },
-    },
-    photoKeys: [photo('hiace-front'), photo('hiace-side')],
-    status: 'Pending', createdAt: '2026-10-20T09:00:00.000Z', updatedAt: '2026-10-20T09:00:00.000Z',
-  },
-  {
-    _id: 'veh_003', ownerId: 'user_001', type: 'SUV', make: 'Mitsubishi', model: 'Montero', colour: 'Black',
-    year: 2020, plateNo: 'KX9021', seats: 7, hasAC: true, luggage: 'Available',
-    documents: {
-      registration: { fileKey: 'docs/registration/montero-reg.pdf' },
-      revenueLicence: { fileKey: 'docs/revenueLicence/montero-rev.pdf', expiry: addDays(200) },
-      insurance: { fileKey: 'docs/insurance/montero-ins.pdf', expiry: addDays(150) },
-    },
-    photoKeys: [photo('montero-front'), photo('montero-side')],
-    status: 'Rejected', reviewedBy: 'admin_01',
-    rejectionReason: 'Insurance document is unclear. Please re-upload a clear copy.',
-    createdAt: '2026-09-10T09:00:00.000Z', updatedAt: '2026-09-12T09:00:00.000Z',
-  },
-  {
-    _id: 'veh_004', ownerId: 'user_001', type: 'Car', make: 'Suzuki', model: 'Alto', colour: 'Red',
-    year: 2012, plateNo: 'WP4455', seats: 4, hasAC: false, luggage: 'Unavailable',
-    documents: {
-      registration: { fileKey: 'docs/registration/alto-reg.pdf' },
-      revenueLicence: { fileKey: 'docs/revenueLicence/alto-rev.pdf', expiry: addDays(90) },
-      insurance: { fileKey: 'docs/insurance/alto-ins.pdf', expiry: addDays(90) },
-    },
-    photoKeys: [photo('alto-front'), photo('alto-side')],
-    status: 'Inactive', createdAt: '2026-05-05T09:00:00.000Z', updatedAt: '2026-06-01T09:00:00.000Z',
-  },
-  {
-    _id: 'veh_005', ownerId: 'user_001', type: 'Van', make: 'Nissan', model: 'Caravan', colour: 'Blue',
-    year: 2015, plateNo: 'NB7788', seats: 10, hasAC: true, luggage: 'Limited',
-    documents: {
-      registration: { fileKey: 'docs/registration/caravan-reg.pdf' },
-      revenueLicence: { fileKey: 'docs/revenueLicence/caravan-rev.pdf', expiry: addDays(60) },
-      insurance: { fileKey: 'docs/insurance/caravan-ins.pdf', expiry: addDays(-30) },
-    },
-    photoKeys: [photo('caravan-front'), photo('caravan-side')],
-    status: 'Expired', createdAt: '2025-11-01T09:00:00.000Z', updatedAt: '2026-10-01T09:00:00.000Z',
-  },
-];
+  });
+  let body = null;
+  try {
+    body = await res.json();
+  } catch (e) {
+    /* empty body */
+  }
+  if (!res.ok) {
+    const err = new Error((body && body.message) || 'Something went wrong. Please try again.');
+    err.code = body && body.code;
+    err.status = res.status;
+    throw err;
+  }
+  return body;
+}
 
 const MAKES = {
   Toyota: ['Axio', 'Aqua', 'Prius', 'HiAce', 'Corolla', 'Land Cruiser'],
@@ -238,66 +180,62 @@ const MAKES = {
   'Mercedes-Benz': ['C-Class', 'E-Class', 'GLC'],
 };
 
-const LOCAL_URIS = {};
-let DB = [...DUMMY_VEHICLES];
-
 const api = {
-  async listVehicles() {
-    await wait(300, 600);
-    return [...DB];
-  },
-  async getVehicle(id) {
-    await wait(200, 400);
-    return DB.find((v) => v._id === id) || null;
+  async listVehicles(ownerId) {
+    const data = await request(`/vehicles?ownerId=${encodeURIComponent(ownerId)}`);
+    return Array.isArray(data) ? data : (data && data.vehicles) || [];
   },
   async isPlateTaken(plateNo) {
-    await wait(350, 600);
-    return DB.some((v) => v.plateNo === plateNo);
+    const data = await request(`/vehicles/check-plate?plateNo=${encodeURIComponent(plateNo)}`);
+    return !!(data && data.taken);
   },
   async createVehicle(payload, ownerId) {
-    await wait(800);
-    if (API_CONFIG.SIMULATE_FAILURE) throw new Error('Network error. Please try again.');
-    if (DB.some((v) => v.plateNo === payload.plateNo)) {
-      const e = new Error('This plate number is already registered.');
-      e.code = 'DUPLICATE_PLATE';
-      throw e;
-    }
-    const now = new Date().toISOString();
-    const vehicle = {
-      ...payload,
-      _id: `veh_${Date.now()}`,
-      ownerId,
-      status: 'Pending',
-      createdAt: now,
-      updatedAt: now,
-    };
-    DB = [vehicle, ...DB];
-    return vehicle;
+    const data = await request('/vehicles', {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, ownerId }),
+    });
+    return (data && data.vehicle) || data;
   },
-  async uploadFile(localUri, kind, onProgress) {
-    for (let i = 1; i <= 10; i += 1) {
-      await wait(120);
-      onProgress && onProgress(i * 10);
-    }
-    const isPhoto = ['front', 'side', 'extra'].includes(kind);
-    const ext = (localUri.split('?')[0].split('.').pop() || (isPhoto ? 'jpg' : 'pdf')).slice(0, 4);
-    const fileKey = `${isPhoto ? 'photos' : 'docs'}/${kind}/${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    LOCAL_URIS[fileKey] = localUri;
-    return { fileKey };
+  // Multipart upload with progress. Server should answer { fileKey }.
+  uploadFile(localUri, kind, onProgress, mimeType, fileName) {
+    return new Promise((resolve, reject) => {
+      const isPhoto = ['front', 'side', 'extra'].includes(kind);
+      const ext = (localUri.split('?')[0].split('.').pop() || (isPhoto ? 'jpg' : 'pdf')).slice(0, 4);
+      const form = new FormData();
+      form.append('kind', kind);
+      form.append('file', {
+        uri: localUri,
+        name: fileName || `${kind}.${ext}`,
+        type: mimeType || (isPhoto ? 'image/jpeg' : 'application/pdf'),
+      });
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE_URL}/uploads`);
+      if (AUTH_TOKEN) xhr.setRequestHeader('Authorization', `Bearer ${AUTH_TOKEN}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+      };
+      xhr.onload = () => {
+        try {
+          const body = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300 && body.fileKey) resolve({ fileKey: body.fileKey });
+          else reject(new Error(body.message || 'Upload failed'));
+        } catch (e) {
+          reject(new Error('Upload failed'));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.send(form);
+    });
   },
   getFileUrl(fileKey) {
     if (!fileKey) return null;
-    if (LOCAL_URIS[fileKey]) return LOCAL_URIS[fileKey];
-    if (fileKey.startsWith('photos/')) {
-      const seed = fileKey.split('/').pop().replace(/\.\w+$/, '');
-      return `https://picsum.photos/seed/${seed}/800/500`;
-    }
-    return null;
+    if (/^https?:\/\//.test(fileKey)) return fileKey;
+    return `${FILES_BASE_URL}/${fileKey}`;
   },
 };
 
 /* ===========================================================================
- * 4. FORM STATE (Context-free reducer, kept inside the wizard)
+ * 4. FORM STATE
  * ========================================================================= */
 const initialForm = {
   type: '',
@@ -342,7 +280,7 @@ function formReducer(state, action) {
 }
 
 /* ===========================================================================
- * 5. VALIDATION (one function per step; returns { field: message })
+ * 5. VALIDATION
  * ========================================================================= */
 const DOC_LABELS = {
   registration: 'Registration document',
@@ -634,6 +572,7 @@ function SeatStepper({ value, onChange }) {
   );
 }
 
+// Vehicle paint colours are data (not theme colours), so they keep their own hex values.
 const SWATCHES = [
   { name: 'White', hex: '#FFFFFF' },
   { name: 'Black', hex: '#1F1F2B' },
@@ -908,7 +847,7 @@ function Step3PlateComfort({ form, set, errors, plateState, submitError }) {
   );
 }
 
-function UploadCard({ title, doc, needsExpiry, error, onPick, onRemove, onExpiry, icon }) {
+function UploadCard({ title, doc, needsExpiry, onPick, onRemove, onExpiry, icon }) {
   const [showPicker, setShowPicker] = useState(false);
   const tomorrow = useMemo(() => {
     const d = new Date();
@@ -1002,7 +941,6 @@ function UploadCard({ title, doc, needsExpiry, error, onPick, onRemove, onExpiry
           )}
         </View>
       ) : null}
-      {error && !doc ? null : null}
     </Card>
   );
 }
@@ -1018,10 +956,16 @@ function Step4Documents({ form, dispatch, errors }) {
         key,
         patch: { name: a.name, size: a.size, uri: a.uri, progress: 0, fileKey: null, uploading: true },
       });
-      const { fileKey } = await api.uploadFile(a.uri, key, (p) => dispatch({ type: 'doc', key, patch: { progress: p } }));
+      const { fileKey } = await api.uploadFile(
+        a.uri,
+        key,
+        (p) => dispatch({ type: 'doc', key, patch: { progress: p } }),
+        a.mimeType,
+        a.name
+      );
       dispatch({ type: 'doc', key, patch: { fileKey, uploading: false, progress: 100 } });
     } catch (e) {
-      dispatch({ type: 'doc', key, patch: { uploading: false, fileKey: null } });
+      dispatch({ type: 'doc', key, patch: null });
       Alert.alert('Upload failed', 'Could not upload that file. Please try again.');
     }
   };
@@ -1206,9 +1150,9 @@ function Step6Review({ form, goEdit, submitError }) {
 }
 
 /* ===========================================================================
- * 8. SUCCESS SCREEN (check pop + confetti)
+ * 8. SUCCESS SCREEN
  * ========================================================================= */
-const CONFETTI_COLORS = [C.primary, C.accent, C.secondary, '#C4B5FD'];
+const CONFETTI_COLORS = [C.primary, C.accent, C.secondary, C.lightPink];
 
 function Confetti() {
   const { height } = Dimensions.get('window');
@@ -1254,6 +1198,7 @@ function Confetti() {
 
 function SuccessScreen({ onAddAnother, onViewVehicles }) {
   const s = useRef(new Animated.Value(0)).current;
+  const bottomSpace = useBottomSpace();
   useEffect(() => {
     Animated.spring(s, { toValue: 1, useNativeDriver: true, bounciness: 16, speed: 8 }).start();
     try {
@@ -1265,7 +1210,7 @@ function SuccessScreen({ onAddAnother, onViewVehicles }) {
   return (
     <GradientScreen>
       <Confetti />
-      <SafeAreaView style={[S.flex, S.center, { padding: SP.xxl }]}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={[S.flex, S.center, { padding: SP.xxl, paddingBottom: bottomSpace }]}>
         <Animated.View style={[S.successCircle, { transform: [{ scale: s }] }]}>
           <Icon name="check" size={64} color={C.white} />
         </Animated.View>
@@ -1298,6 +1243,7 @@ function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [done, setDone] = useState(false);
+  const bottomSpace = useBottomSpace();
 
   // Debounced plate uniqueness check
   useEffect(() => {
@@ -1313,8 +1259,12 @@ function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
     setPlateState('checking');
     let alive = true;
     const t = setTimeout(async () => {
-      const taken = await api.isPlateTaken(p);
-      if (alive) setPlateState(taken ? 'taken' : 'free');
+      try {
+        const taken = await api.isPlateTaken(p);
+        if (alive) setPlateState(taken ? 'taken' : 'free');
+      } catch (e) {
+        if (alive) setPlateState('idle');
+      }
     }, 500);
     return () => {
       alive = false;
@@ -1374,7 +1324,11 @@ function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
         revenueLicence: { fileKey: form.docs.revenueLicence.fileKey, expiry: form.docs.revenueLicence.expiry },
         insurance: { fileKey: form.docs.insurance.fileKey, expiry: form.docs.insurance.expiry },
       },
-      photoKeys: [form.photos.front.fileKey, form.photos.side.fileKey, ...['e0', 'e1', 'e2', 'e3'].map((k) => form.photos[k]).filter((p) => p && p.fileKey).map((p) => p.fileKey)],
+      photoKeys: [
+        form.photos.front.fileKey,
+        form.photos.side.fileKey,
+        ...['e0', 'e1', 'e2', 'e3'].map((k) => form.photos[k]).filter((p) => p && p.fileKey).map((p) => p.fileKey),
+      ],
     };
     try {
       const vehicle = await api.createVehicle(payload, ownerId);
@@ -1410,7 +1364,7 @@ function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
 
   return (
     <GradientScreen>
-      <SafeAreaView style={S.flex}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={S.flex}>
         <KeyboardAvoidingView style={S.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={S.shell}>
             <View style={S.topBar}>
@@ -1439,7 +1393,8 @@ function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
               </ScrollView>
             </StepTransition>
 
-            <View style={S.bottomBar}>
+            {/* Lifted above the system navigation bar */}
+            <View style={[S.bottomBar, { paddingBottom: bottomSpace }]}>
               {isReview ? (
                 <PrimaryButton title="Submit for review" onPress={submit} loading={submitting} dark icon="send" />
               ) : (
@@ -1485,10 +1440,16 @@ function Skeleton() {
 }
 
 const VehicleCard = memo(function VehicleCard({ v, onPress }) {
-  const uri = api.getFileUrl(v.photoKeys[0]);
+  const uri = api.getFileUrl(v.photoKeys && v.photoKeys[0]);
   return (
     <PressScale onPress={() => onPress(v._id)} label={`${v.make} ${v.model} ${v.year}, status ${v.status}`} style={[S.card, { marginBottom: SP.lg, padding: SP.md }]}>
-      <Image source={{ uri }} style={S.cardImg} />
+      {uri ? (
+        <Image source={{ uri }} style={S.cardImg} />
+      ) : (
+        <View style={[S.cardImg, S.center]}>
+          <Icon name="car" size={44} color={C.primary} />
+        </View>
+      )}
       <View style={{ padding: SP.sm }}>
         <View style={[S.row, { justifyContent: 'space-between', marginTop: SP.xs }]}>
           <View style={{ flex: 1, paddingRight: SP.sm }}>
@@ -1514,14 +1475,15 @@ const VehicleCard = memo(function VehicleCard({ v, onPress }) {
   );
 });
 
-function VehiclesScreen({ vehicles, loading, refreshing, onRefresh, onOpen, onAdd, onBack }) {
+function VehiclesScreen({ vehicles, loading, refreshing, loadError, onRefresh, onOpen, onAdd, onBack }) {
   const [filter, setFilter] = useState('All');
+  const bottomSpace = useBottomSpace();
   const data = useMemo(() => (filter === 'All' ? vehicles : vehicles.filter((v) => v.status === filter)), [vehicles, filter]);
   const renderItem = useCallback(({ item }) => <VehicleCard v={item} onPress={onOpen} />, [onOpen]);
 
   return (
     <GradientScreen>
-      <SafeAreaView style={S.flex}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={S.flex}>
         <View style={S.shell}>
           <View style={[S.topBar, { marginBottom: SP.sm }]}>
             <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Go back" style={S.backBtn}>
@@ -1550,24 +1512,35 @@ function VehiclesScreen({ vehicles, loading, refreshing, onRefresh, onOpen, onAd
               keyExtractor={(i) => i._id}
               renderItem={renderItem}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 110, flexGrow: 1 }}
+              contentContainerStyle={{ paddingBottom: 90 + bottomSpace, flexGrow: 1 }}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
               ListEmptyComponent={
                 <View style={[S.center, { flex: 1, paddingVertical: SP.xxxl }]}>
                   <View style={[S.successCircle, { backgroundColor: C.tint, width: 96, height: 96, borderRadius: 48 }]}>
-                    <Icon name="car-off" size={44} color={C.primary} />
+                    <Icon name={loadError ? 'wifi-off' : 'car-off'} size={44} color={C.primary} />
                   </View>
-                  <Text style={[S.h2, { marginTop: SP.xl }]}>{filter === 'All' ? 'No vehicles yet' : `No ${filter.toLowerCase()} vehicles`}</Text>
-                  <Text style={[S.sub, { textAlign: 'center', marginTop: SP.sm }]}>
-                    {filter === 'All' ? 'Add your first vehicle to start taking rides.' : 'Nothing matches this filter.'}
+                  <Text style={[S.h2, { marginTop: SP.xl }]}>
+                    {loadError ? 'Could not load vehicles' : filter === 'All' ? 'No vehicles yet' : `No ${filter.toLowerCase()} vehicles`}
                   </Text>
-                  {filter === 'All' ? <PrimaryButton title="Add your first vehicle" onPress={onAdd} style={{ marginTop: SP.xl, paddingHorizontal: SP.xxl }} /> : null}
+                  <Text style={[S.sub, { textAlign: 'center', marginTop: SP.sm }]}>
+                    {loadError
+                      ? loadError
+                      : filter === 'All'
+                      ? 'Add your first vehicle to start taking rides.'
+                      : 'Nothing matches this filter.'}
+                  </Text>
+                  {loadError ? (
+                    <PrimaryButton title="Try again" onPress={onRefresh} style={{ marginTop: SP.xl, paddingHorizontal: SP.xxl }} />
+                  ) : filter === 'All' ? (
+                    <PrimaryButton title="Add your first vehicle" onPress={onAdd} style={{ marginTop: SP.xl, paddingHorizontal: SP.xxl }} />
+                  ) : null}
                 </View>
               }
             />
           )}
         </View>
-        <Pressable onPress={onAdd} accessibilityRole="button" accessibilityLabel="Add vehicle" style={S.fab}>
+        {/* Lifted above the system navigation bar */}
+        <Pressable onPress={onAdd} accessibilityRole="button" accessibilityLabel="Add vehicle" style={[S.fab, { bottom: bottomSpace }]}>
           <Icon name="plus" size={30} color={C.white} />
         </Pressable>
       </SafeAreaView>
@@ -1577,8 +1550,12 @@ function VehiclesScreen({ vehicles, loading, refreshing, onRefresh, onOpen, onAd
 
 function VehicleDetailsScreen({ vehicle, onBack }) {
   const width = Math.min(Dimensions.get('window').width, MAX_W);
+  const imgW = width - 40;
   const [idx, setIdx] = useState(0);
+  const bottomSpace = useBottomSpace();
   if (!vehicle) return null;
+  const photoKeys = vehicle.photoKeys || [];
+  const vdocs = vehicle.documents || {};
   const docs = [
     { key: 'registration', title: 'Registration document', icon: 'file-document-outline' },
     { key: 'revenueLicence', title: 'Revenue licence', icon: 'card-account-details-outline' },
@@ -1594,7 +1571,7 @@ function VehicleDetailsScreen({ vehicle, onBack }) {
   ];
   return (
     <GradientScreen>
-      <SafeAreaView style={S.flex}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={S.flex}>
         <View style={[S.shell, { paddingBottom: 0 }]}>
           <View style={S.topBar}>
             <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Go back" style={S.backBtn}>
@@ -1605,24 +1582,26 @@ function VehicleDetailsScreen({ vehicle, onBack }) {
             </Text>
             <View style={{ width: 44 }} />
           </View>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: SP.md, paddingBottom: SP.xxxl }}>
-            <View style={{ borderRadius: R.lg, overflow: 'hidden' }}>
-              <ScrollView
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                onMomentumScrollEnd={(e) => setIdx(Math.round(e.nativeEvent.contentOffset.x / (width - SP.xxxl * 0 - 40)))}
-              >
-                {vehicle.photoKeys.map((k) => (
-                  <Image key={k} source={{ uri: api.getFileUrl(k) }} style={{ width: Math.min(width, MAX_W) - 40, height: 220 }} />
-                ))}
-              </ScrollView>
-              <View style={S.dots}>
-                {vehicle.photoKeys.map((k, i) => (
-                  <View key={k} style={[S.dot, i === idx && { backgroundColor: C.white, width: 18 }]} />
-                ))}
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: SP.md, paddingBottom: bottomSpace }}>
+            {photoKeys.length > 0 ? (
+              <View style={{ borderRadius: R.lg, overflow: 'hidden' }}>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onMomentumScrollEnd={(e) => setIdx(Math.round(e.nativeEvent.contentOffset.x / imgW))}
+                >
+                  {photoKeys.map((k) => (
+                    <Image key={k} source={{ uri: api.getFileUrl(k) }} style={{ width: imgW, height: 220, backgroundColor: C.tint }} />
+                  ))}
+                </ScrollView>
+                <View style={S.dots}>
+                  {photoKeys.map((k, i) => (
+                    <View key={k} style={[S.dot, i === idx && { backgroundColor: C.white, width: 18 }]} />
+                  ))}
+                </View>
               </View>
-            </View>
+            ) : null}
 
             <View style={[S.row, { justifyContent: 'space-between', marginTop: SP.xl }]}>
               <View style={S.plate}>
@@ -1654,12 +1633,14 @@ function VehicleDetailsScreen({ vehicle, onBack }) {
 
             <Text style={[S.h2, { marginTop: SP.xl, marginBottom: SP.md }]}>Documents</Text>
             {docs.map((d) => {
-              const doc = vehicle.documents[d.key];
+              const doc = vdocs[d.key];
               const ex = expiryInfo(doc && doc.expiry);
+              const url = doc ? api.getFileUrl(doc.fileKey) : null;
               return (
                 <Pressable
                   key={d.key}
-                  onPress={() => Alert.alert(d.title, `Preview placeholder\n${doc ? doc.fileKey : ''}`)}
+                  disabled={!url}
+                  onPress={() => url && Linking.openURL(url)}
                   accessibilityRole="button"
                   accessibilityLabel={`${d.title}. ${doc && doc.expiry ? ex.text : ''}`}
                   style={[S.card, S.row, { justifyContent: 'space-between', marginBottom: SP.md, padding: SP.lg }]}
@@ -1670,7 +1651,11 @@ function VehicleDetailsScreen({ vehicle, onBack }) {
                     </View>
                     <View style={{ marginLeft: SP.md }}>
                       <Text style={S.rowTitle}>{d.title}</Text>
-                      {doc && doc.expiry ? <Text style={[S.expiry, { color: ex.color }]}>{ex.text}</Text> : <Text style={S.muted}>On file</Text>}
+                      {doc && doc.expiry ? (
+                        <Text style={[S.expiry, { color: ex.color }]}>{ex.text}</Text>
+                      ) : (
+                        <Text style={S.muted}>{doc ? 'On file' : 'Not uploaded'}</Text>
+                      )}
                     </View>
                   </View>
                   <Icon name="chevron-right" size={22} color={C.textMuted} />
@@ -1687,30 +1672,35 @@ function VehicleDetailsScreen({ vehicle, onBack }) {
 /* ===========================================================================
  * 11. MODULE ROOT (default export)  -  add | list | details
  * ========================================================================= */
-const OWNER_FALLBACK = 'user_001';
-
-export default function AddVehicleModule({ ownerId }) {
-  // To use your auth context instead, do:
-  //   const { user } = useAuth();   const owner = (user && (user._id || user.id)) || OWNER_FALLBACK;
-  const owner = ownerId || OWNER_FALLBACK;
+export default function AddVehicleModule({ ownerId, authToken }) {
+  // Pass `ownerId` and `authToken` as props, or read them from your auth context:
+  //   const { user, token } = useAuth();
   const router = useRouter();
+  AUTH_TOKEN = authToken || AUTH_TOKEN;
 
   const [screen, setScreen] = useState('add'); // 'add' | 'list' | 'details'
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
 
-  const load = useCallback(async (isRefresh) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-    try {
-      setVehicles(await api.listVehicles());
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (isRefresh) => {
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+      setLoadError('');
+      try {
+        setVehicles(await api.listVehicles(ownerId));
+      } catch (e) {
+        setLoadError(e.message || 'Please check your connection and try again.');
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [ownerId]
+  );
 
   useEffect(() => {
     load(false);
@@ -1734,6 +1724,7 @@ export default function AddVehicleModule({ ownerId }) {
         vehicles={vehicles}
         loading={loading}
         refreshing={refreshing}
+        loadError={loadError}
         onRefresh={() => load(true)}
         onOpen={openDetails}
         onAdd={() => setScreen('add')}
@@ -1742,7 +1733,7 @@ export default function AddVehicleModule({ ownerId }) {
     );
   if (screen === 'details') return <VehicleDetailsScreen vehicle={selected} onBack={() => setScreen('list')} />;
 
-  return <Wizard key="wizard" ownerId={owner} onCreated={onCreated} onViewVehicles={() => setScreen('list')} onExit={exitModule} />;
+  return <Wizard key="wizard" ownerId={ownerId} onCreated={onCreated} onViewVehicles={() => setScreen('list')} onExit={exitModule} />;
 }
 
 /* ===========================================================================
@@ -1752,7 +1743,7 @@ const S = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   center: { alignItems: 'center', justifyContent: 'center' },
-  shell: { flex: 1, width: '100%', maxWidth: MAX_W, alignSelf: 'center', paddingHorizontal: 20, paddingBottom: SP.lg },
+  shell: { flex: 1, width: '100%', maxWidth: MAX_W, alignSelf: 'center', paddingHorizontal: 20 },
   glowA: { position: 'absolute', top: -80, right: -70, width: 240, height: 240, borderRadius: 120, backgroundColor: C.accent, opacity: 0.28 },
   glowB: { position: 'absolute', bottom: 120, left: -100, width: 220, height: 220, borderRadius: 110, backgroundColor: C.primary, opacity: 0.1 },
 
@@ -1764,19 +1755,19 @@ const S = StyleSheet.create({
   error: { fontSize: 13, color: C.danger, marginTop: SP.xs, fontWeight: '600' },
   rowTitle: { fontSize: 16, fontWeight: '700', color: C.text },
 
-  card: { backgroundColor: C.white, borderRadius: R.lg, padding: SP.xl, ...SHADOW },
+  card: { backgroundColor: C.surface, borderRadius: R.lg, padding: SP.xl, ...SHADOW },
 
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 56 },
-  backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center', ...SHADOW },
+  backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', ...SHADOW },
   stepCount: { fontSize: 14, fontWeight: '700', color: C.secondary },
-  progressTrack: { height: 8, borderRadius: R.pill, backgroundColor: C.border, overflow: 'hidden' },
+  progressTrack: { height: 8, borderRadius: R.pill, backgroundColor: C.borderSubtle, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: R.pill, backgroundColor: C.primary },
   bottomBar: { paddingTop: SP.md },
 
   btn: { height: 54, borderRadius: R.md, alignItems: 'center', justifyContent: 'center', minWidth: 44 },
   btnText: { color: C.white, fontSize: 16, fontWeight: '700' },
 
-  chip: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: SP.lg, borderRadius: R.pill, backgroundColor: C.white, borderWidth: 1, borderColor: C.border, marginRight: SP.sm },
+  chip: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: SP.lg, borderRadius: R.pill, backgroundColor: C.surface, borderWidth: 1, borderColor: C.borderSubtle, marginRight: SP.sm },
   chipSmall: { minHeight: 32, paddingHorizontal: SP.md, marginBottom: SP.xs },
   chipOn: { backgroundColor: C.tint, borderColor: C.primary },
   chipText: { fontSize: 14, color: C.text, fontWeight: '500' },
@@ -1784,14 +1775,14 @@ const S = StyleSheet.create({
 
   grid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -SP.sm },
   gridCell: { width: '50%', padding: SP.sm },
-  optionCard: { backgroundColor: C.white, borderRadius: R.xl, paddingVertical: SP.xxl, alignItems: 'center', borderWidth: 2, borderColor: 'transparent', ...SHADOW },
+  optionCard: { backgroundColor: C.surface, borderRadius: R.xl, paddingVertical: SP.xxl, alignItems: 'center', borderWidth: 2, borderColor: 'transparent', ...SHADOW },
   optionOn: { backgroundColor: C.tint, borderColor: C.primary },
   optionIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: C.tint, alignItems: 'center', justifyContent: 'center' },
   optionLabel: { marginTop: SP.md, fontSize: 17, fontWeight: '700', color: C.text },
   checkPos: { position: 'absolute', top: 12, right: 12 },
   checkBadge: { backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
 
-  input: { minHeight: 52, borderRadius: R.md, borderWidth: 1, borderColor: C.border, backgroundColor: C.white, paddingHorizontal: SP.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  input: { minHeight: 52, borderRadius: R.md, borderWidth: 1, borderColor: C.borderSubtle, backgroundColor: C.surface, paddingHorizontal: SP.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   inputText: { flex: 1, fontSize: 16, color: C.text, paddingVertical: SP.md },
 
   swatchWrap: { flexDirection: 'row', flexWrap: 'wrap' },
@@ -1815,22 +1806,22 @@ const S = StyleSheet.create({
 
   dropZone: { marginTop: SP.lg, borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.primary, borderRadius: R.md, backgroundColor: C.tint, alignItems: 'center', justifyContent: 'center', paddingVertical: SP.xl, minHeight: 88 },
   dropText: { marginTop: SP.sm, fontSize: 14, color: C.primary, fontWeight: '600' },
-  fileBox: { marginTop: SP.lg, backgroundColor: C.background, borderRadius: R.md, padding: SP.md, borderWidth: 1, borderColor: C.border },
+  fileBox: { marginTop: SP.lg, backgroundColor: C.background, borderRadius: R.md, padding: SP.md, borderWidth: 1, borderColor: C.borderSubtle },
   fileName: { fontSize: 15, fontWeight: '600', color: C.text },
-  miniBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
+  miniBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.borderSubtle },
   linkBtn: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SP.sm },
   link: { color: C.primary, fontWeight: '700', fontSize: 15 },
 
   photoRow: { flexDirection: 'row', justifyContent: 'space-between' },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  photoSlot: { width: '48%', aspectRatio: 1.1, borderRadius: R.lg, backgroundColor: C.white, overflow: 'hidden', marginBottom: SP.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.border },
+  photoSlot: { width: '48%', aspectRatio: 1.1, borderRadius: R.lg, backgroundColor: C.surface, overflow: 'hidden', marginBottom: SP.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.borderSubtle },
   photoEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   photoLabel: { marginTop: SP.xs, fontSize: 15, fontWeight: '700', color: C.text },
   photoImg: { width: '100%', height: '100%' },
-  photoOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(36,33,59,0.55)', alignItems: 'center', justifyContent: 'center' },
+  photoOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: `${C.text}8C`, alignItems: 'center', justifyContent: 'center' },
   photoPct: { color: C.white, fontWeight: '700', marginTop: SP.xs },
   photoCheck: { position: 'absolute', bottom: 8, left: 8 },
-  photoRemove: { position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(36,33,59,0.7)', alignItems: 'center', justifyContent: 'center' },
+  photoRemove: { position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: `${C.text}B3`, alignItems: 'center', justifyContent: 'center' },
   reviewThumb: { width: 84, height: 64, borderRadius: R.sm, marginRight: SP.sm },
 
   kv: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: SP.xs + 2 },
@@ -1838,8 +1829,8 @@ const S = StyleSheet.create({
 
   needed: { flexDirection: 'row', alignItems: 'flex-start', marginTop: SP.lg, paddingHorizontal: SP.xs },
   neededText: { flex: 1, marginLeft: SP.sm, fontSize: 13, color: C.textMuted },
-  alert: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: C.dangerSoft, borderRadius: R.md, padding: SP.lg, borderWidth: 1, borderColor: '#FECACA' },
-  alertText: { flex: 1, marginLeft: SP.sm, fontSize: 14, color: '#7F1D1D', lineHeight: 20 },
+  alert: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: C.dangerSoft, borderRadius: R.md, padding: SP.lg, borderWidth: 1, borderColor: `${C.error}33` },
+  alertText: { flex: 1, marginLeft: SP.sm, fontSize: 14, color: C.error, lineHeight: 20 },
 
   badge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.md, height: 28, borderRadius: R.pill },
   badgeDot: { width: 7, height: 7, borderRadius: 4, marginRight: 6 },
@@ -1851,11 +1842,11 @@ const S = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: '800', color: C.text },
   plate: { backgroundColor: C.text, borderRadius: R.sm, paddingHorizontal: SP.md, paddingVertical: SP.xs + 2, marginRight: SP.sm, marginBottom: SP.xs },
   plateText: { color: C.white, fontWeight: '800', letterSpacing: 1.5, fontSize: 13 },
-  skel: { backgroundColor: C.border, borderRadius: R.sm },
-  fab: { position: 'absolute', right: 24, bottom: 28, width: 60, height: 60, borderRadius: 30, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', ...SHADOW },
+  skel: { backgroundColor: C.borderSubtle, borderRadius: R.sm },
+  fab: { position: 'absolute', right: 24, width: 60, height: 60, borderRadius: 30, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', ...SHADOW },
 
   dots: { position: 'absolute', bottom: 10, alignSelf: 'center', flexDirection: 'row' },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.55)', marginHorizontal: 3 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: `${C.white}8C`, marginHorizontal: 3 },
   infoGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   infoCell: { width: '50%', paddingVertical: SP.sm },
   expiry: { fontSize: 13, fontWeight: '700', marginTop: 2 },

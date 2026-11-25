@@ -37,6 +37,7 @@ export default function AuthGate({
   redirectTo = '/login', // file app/(auth)/login.jsx -> URL "/login"
   allowedRoles, // optional array of roles that may see the children
 }) {
+  console.log(allowedRoles);
   const { user, loading } = useAuth();
 
   // 1. Still checking the saved token -> show a spinner.
