@@ -119,19 +119,16 @@ export default function Login() {
   // Handle the login button.
   async function handleLogin() {
     if (submitting) return;
-
     setApiError('');
-
     const validationErrors = validate();
     setErrors(validationErrors);
-
     if (Object.keys(validationErrors).length > 0) {
       return;
     }
-
     setSubmitting(true);
 
     try {
+      console.log("sed")
       // Calls POST /api/auth/login on the auth service (port 4001).
       const profile = await login(email.trim().toLowerCase(), password);
 

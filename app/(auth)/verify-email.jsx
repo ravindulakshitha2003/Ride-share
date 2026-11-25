@@ -48,6 +48,8 @@ export default function VerifyEmail() {
         pathname: '/(auth)/register',
         params: { email, signupToken: data.signupToken },
       });
+
+      
     } catch (err) {
       setError(getErrorMessage(err));
       setCode('');

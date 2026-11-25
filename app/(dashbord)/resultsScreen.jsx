@@ -20,32 +20,9 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import PlaceInput from '../../components/map/PlaceInput';
 import { setMapPickerSelectionHandler } from '../../context/mapNavigation';
 import { searchAvailableRides } from '../../api/rideService';
-
-/* =======================================================
-   DESIGN TOKENS
-======================================================= */
-const C = {
-  primary: '#5B4BDB',
-  secondary: '#312E81',
-  accent: '#F0ABFC',
-  background: '#F8F7FF',
-  text: '#24213B',
-  textMuted: 'rgba(36,33,59,0.6)',
-  white: '#FFFFFF',
-  border: '#E4E1F5',
-  tint: '#EEEBFF',
-  gradientEnd: '#E9E4FF',
-  line: '#CFC9F5',
-  danger: '#DC2626',
-  dangerSoft: '#FEF2F2',
-  success: '#16A34A',
-  successSoft: '#E8F7EE',
-  star: '#F59E0B',
-  amber: '#B45309',
-  amberSoft: '#FEF3C7',
-  greySoft: '#F1F0F7',
-  grey: '#6B7280',
-};
+import { colors as C } from '../../theme/colors';
+import CardSkeleton from '../../components/common/CardSkeleton';
+import { useToast } from '../../context/ToastContext';
 
 const R = { sm: 12, md: 16, lg: 24, xl: 28, pill: 999 };
 const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 };
@@ -727,6 +704,7 @@ function FilterPanel({ open, filters, onChange, onClear }) {
 export default function ResultsScreen({ route }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { showToast } = useToast();
   const params = route?.params ?? {};
 
   // Form input states
@@ -749,6 +727,7 @@ export default function ResultsScreen({ route }) {
   const [searchOpen, setSearchOpen] = useState(true);
   const [searchError, setSearchError] = useState('');
   const [apiError, setApiError] = useState('');
+  const [navigatingRideId, setNavigatingRideId] = useState(null);
 
   // Filters
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -866,10 +845,15 @@ export default function ResultsScreen({ route }) {
     } catch (err) {
       console.log('Ride search error:', err?.message);
       setApiError(err?.message || 'Something went wrong. Please try again.');
+      showToast({
+        type: 'error',
+        title: 'Search Failed',
+        message: err?.message || 'Could not fetch rides. Please try again.',
+      });
     } finally {
       setLoading(false);
     }
-  }, [fromCoords, toCoords, date, passengers]);
+  }, [fromCoords, toCoords, date, passengers, showToast]);
 
   /* -------------------------------------------------------
      FILTER CALCULATION
@@ -903,97 +887,110 @@ export default function ResultsScreen({ route }) {
       <MemoRouteCard
         ride={item}
         onPress={() => {
-          const raw = item.rawRide || {};
-          const driverId =
-            item.driverId ||
-            raw.driver_id ||
-            raw.driverID ||
-            raw.driverId ||
-            item.driver?.id ||
-            item.driver?._id;
+          if (navigatingRideId) return; // Prevent duplicate rapid taps
+          setNavigatingRideId(item.id ?? item._id ?? 'navigating');
 
-          const vehicleId =
-            item.vehicleId ||
-            raw.vehicle_id ||
-            raw.vehicalID ||
-            raw.vehicleId ||
-            raw.vehicalId ||
-            item.vehicle?.id ||
-            item.vehicle?._id;
+          try {
+            const raw = item.rawRide || {};
+            const driverId =
+              item.driverId ||
+              raw.driver_id ||
+              raw.driverID ||
+              raw.driverId ||
+              item.driver?.id ||
+              item.driver?._id;
 
-          router.push({
-            pathname: '/ride-details',
-            params: {
-              ride: JSON.stringify({
-                ...raw,
-                ...item,
-                // Normalized driver and vehicle IDs
-                driver_id: driverId,
-                driverID: driverId,
-                driverId: driverId,
-                vehicle_id: vehicleId,
-                vehicalID: vehicleId,
-                vehicleId: vehicleId,
-                
-                // New backend fields
-                intermediate_stops: item.intermediateStops || raw.intermediate_stops || [],
-                intermediateStops: item.intermediateStops || raw.intermediate_stops || [],
-                ride_preferences: item.ridePreferences || raw.ride_preferences || {},
-                ridePreferences: item.ridePreferences || raw.ride_preferences || {},
-                max_passenger_waiting_minutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
-                maxPassengerWaitingMinutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
+            const vehicleId =
+              item.vehicleId ||
+              raw.vehicle_id ||
+              raw.vehicalID ||
+              raw.vehicleId ||
+              raw.vehicalId ||
+              item.vehicle?.id ||
+              item.vehicle?._id;
 
-                // Normalized route endpoints
-                origin_name: item.from || raw.origin_name || raw.origin?.name || raw.origin,
-                destination_name: item.to || raw.destination_name || raw.destination?.name || raw.destination,
-                from: item.from,
-                to: item.to,
+            router.push({
+              pathname: '/ride-details',
+              params: {
+                ride: JSON.stringify({
+                  ...raw,
+                  ...item,
+                  // Normalized driver and vehicle IDs
+                  driver_id: driverId,
+                  driverID: driverId,
+                  driverId: driverId,
+                  vehicle_id: vehicleId,
+                  vehicalID: vehicleId,
+                  vehicleId: vehicleId,
+                  
+                  // New backend fields
+                  intermediate_stops: item.intermediateStops || raw.intermediate_stops || [],
+                  intermediateStops: item.intermediateStops || raw.intermediate_stops || [],
+                  ride_preferences: item.ridePreferences || raw.ride_preferences || {},
+                  ridePreferences: item.ridePreferences || raw.ride_preferences || {},
+                  max_passenger_waiting_minutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
+                  maxPassengerWaitingMinutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
 
-                // Normalized pricing and seat availability
-                price_per_seat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
-                pricePerSeat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
-                available_seats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
-                availableSeats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
-                seatsFree: item.seatsFree,
+                  // Normalized route endpoints
+                  origin_name: item.from || raw.origin_name || raw.origin?.name || raw.origin,
+                  destination_name: item.to || raw.destination_name || raw.destination?.name || raw.destination,
+                  from: item.from,
+                  to: item.to,
 
-                // Normalized departures and timings
-                departure_at:
-                  raw.departure_at ||
-                  raw.departureAt ||
-                  (item.date ? `${item.date}T${item.departureTime || '00:00'}` : undefined),
-                departureTime: item.departureTime,
-                arrivalTime: item.arrivalTime,
-                date: item.date,
+                  // Normalized pricing and seat availability
+                  price_per_seat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+                  pricePerSeat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+                  available_seats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+                  availableSeats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+                  seatsFree: item.seatsFree,
 
-                // Metrics
-                full_route_distance_meters:
-                  raw.full_route_distance_meters ?? raw.distanceMeters ?? item.rideDistanceMeters,
-                full_route_duration_seconds:
-                  raw.full_route_duration_seconds ??
-                  raw.durationSeconds ??
-                  (item.durationMin ? item.durationMin * 60 : undefined),
-                ride_distance_meters:
-                  raw.ride_distance_meters ?? item.rideDistanceMeters ?? raw.distanceMeters,
-                pickup_distance_meters: item.pickupDistanceMeters ?? raw.pickup_distance_meters,
-                dropoff_distance_meters: item.dropoffDistanceMeters ?? raw.dropoff_distance_meters,
+                  // Normalized departures and timings
+                  departure_at:
+                    raw.departure_at ||
+                    raw.departureAt ||
+                    (item.date ? `${item.date}T${item.departureTime || '00:00'}` : undefined),
+                  departureTime: item.departureTime,
+                  arrivalTime: item.arrivalTime,
+                  date: item.date,
 
-                // Map markers and route geometry
-                suggested_pickup: item.suggestedPickup || raw.suggested_pickup || fromCoords,
-                suggested_dropoff: item.suggestedDropoff || raw.suggested_dropoff || toCoords,
-                matched_route_segment:
-                  item.matchedRouteSegment || raw.matched_route_segment || raw.geometry,
+                  // Metrics
+                  full_route_distance_meters:
+                    raw.full_route_distance_meters ?? raw.distanceMeters ?? item.rideDistanceMeters,
+                  full_route_duration_seconds:
+                    raw.full_route_duration_seconds ??
+                    raw.durationSeconds ??
+                    (item.durationMin ? item.durationMin * 60 : undefined),
+                  ride_distance_meters:
+                    raw.ride_distance_meters ?? item.rideDistanceMeters ?? raw.distanceMeters,
+                  pickup_distance_meters: item.pickupDistanceMeters ?? raw.pickup_distance_meters,
+                  dropoff_distance_meters: item.dropoffDistanceMeters ?? raw.dropoff_distance_meters,
 
-                // Search coordinates passed as fallback
-                searchPickup: fromCoords,
-                searchDropoff: toCoords,
-              }),
-              passengers: String(passengers),
-            },
-          });
+                  // Map markers and route geometry
+                  suggested_pickup: item.suggestedPickup || raw.suggested_pickup || fromCoords,
+                  suggested_dropoff: item.suggestedDropoff || raw.suggested_dropoff || toCoords,
+                  matched_route_segment:
+                    item.matchedRouteSegment || raw.matched_route_segment || raw.geometry,
+
+                  // Search coordinates passed as fallback
+                  searchPickup: fromCoords,
+                  searchDropoff: toCoords,
+                }),
+                passengers: String(passengers),
+              },
+            });
+          } catch (err) {
+            showToast({
+              type: 'error',
+              title: 'Navigation Error',
+              message: 'Could not open ride details. Please try again.',
+            });
+          } finally {
+            setTimeout(() => setNavigatingRideId(null), 1000);
+          }
         }}
       />
     ),
-    [router, passengers, fromCoords, toCoords]
+    [router, passengers, fromCoords, toCoords, navigatingRideId, showToast]
   );
 
   /* -------------------------------------------------------
@@ -1273,9 +1270,10 @@ export default function ResultsScreen({ route }) {
   const filteredOut = rides.length > 0 && visibleRides.length === 0;
 
   const emptyComponent = loading ? (
-    <View style={styles.empty}>
-      <ActivityIndicator size="large" color={C.primary} />
-      <Text style={styles.loadingText}>Searching for rides...</Text>
+    <View style={{ width: '100%', paddingTop: 8 }}>
+      <CardSkeleton />
+      <CardSkeleton />
+      <CardSkeleton />
     </View>
   ) : apiError ? (
     <View style={styles.empty}>

@@ -1,5 +1,6 @@
 import { View ,TextInput ,Text ,StyleSheet } from "react-native";
 import { TouchableOpacity } from "react-native";
+import { colors } from "../theme/colors";
 
 
  export function Chips({ label, options, value, onChange, error }) {
