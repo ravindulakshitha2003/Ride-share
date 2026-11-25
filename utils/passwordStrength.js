@@ -1,6 +1,8 @@
+import { colors } from '../theme/colors';
+
 // Rates a password from level 0 (too short) to 4 (strong) for the strength bar.
 const LABELS = ['', 'Weak', 'Fair', 'Good', 'Strong'];
-const COLORS = ['#E5E7EB', '#DC2626', '#F59E0B', '#2563EB', '#16A34A'];
+const COLORS = [colors.disabled, colors.error, colors.star, colors.info, colors.success];
 
 export function passwordStrength(password) {
   if (!password) return { level: 0, label: '', color: COLORS[0] };

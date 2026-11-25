@@ -17,6 +17,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getDriverVehicleDetails } from '../api/rideDetailsService';
 import { colors } from '../theme/colors';
 import styles from '../theme/ride-details.styles';
+import { useToast } from '../context/ToastContext';
+import DetailSkeleton from '../components/common/DetailSkeleton';
 
 /* =====================================================
    FORMATTERS & HELPERS
@@ -119,10 +121,7 @@ const SectionTitle = ({ title, subtitle, icon }) => (
 );
 
 const LoadingSection = () => (
-  <View style={styles.loadingContainer}>
-    <ActivityIndicator size="small" color={colors.primary} />
-    <Text style={styles.loadingText}>Loading information...</Text>
-  </View>
+  <DetailSkeleton />
 );
 
 // Preference Tag Card Component
@@ -152,6 +151,7 @@ function RuleItem({ icon, label, value, tone = 'default' }) {
 
 export default function RideDetailsScreen() {
   const router = useRouter();
+  const { showToast } = useToast();
   const params = useLocalSearchParams();
   const fullRouteMapRef = useRef(null);
 
@@ -162,6 +162,7 @@ export default function RideDetailsScreen() {
   const [driver, setDriver] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(true);
   const [detailsError, setDetailsError] = useState('');
+  const [isNavigatingToBooking, setIsNavigatingToBooking] = useState(false);
 
   // 1. Parse ride
   const ride = useMemo(() => {
@@ -346,11 +347,32 @@ export default function RideDetailsScreen() {
       : 'Any age';
 
   const handleBookRide = () => {
-    
-    router.push({
-      pathname: '/booking',
-      params: { ride: JSON.stringify(ride) },
-    });
+    if (isNavigatingToBooking) return; // Prevent double taps
+
+    if (Number.isFinite(Number(availableSeats)) && Number(availableSeats) <= 0) {
+      showToast({
+        type: 'warning',
+        title: 'Ride Full',
+        message: 'No available seats remain on this ride.',
+      });
+      return;
+    }
+
+    setIsNavigatingToBooking(true);
+    try {
+      router.push({
+        pathname: '/booking',
+        params: { ride: JSON.stringify(ride) },
+      });
+    } catch (err) {
+      showToast({
+        type: 'error',
+        title: 'Navigation Error',
+        message: 'Could not open booking screen. Please try again.',
+      });
+    } finally {
+      setTimeout(() => setIsNavigatingToBooking(false), 1000);
+    }
   };
 
   return (
@@ -741,15 +763,27 @@ export default function RideDetailsScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.bookButton, Number(availableSeats) <= 0 && styles.disabledBookButton]}
+          style={[
+            styles.bookButton,
+            (Number(availableSeats) <= 0 || isNavigatingToBooking) && styles.disabledBookButton,
+          ]}
           onPress={handleBookRide}
           activeOpacity={0.85}
-          disabled={Number.isFinite(Number(availableSeats)) && Number(availableSeats) <= 0}
+          disabled={(Number.isFinite(Number(availableSeats)) && Number(availableSeats) <= 0) || isNavigatingToBooking}
         >
+          {isNavigatingToBooking ? (
+            <ActivityIndicator size="small" color={colors.white} style={{ marginRight: 8 }} />
+          ) : null}
           <Text style={styles.bookButtonText}>
-            {Number.isFinite(Number(availableSeats)) && Number(availableSeats) <= 0 ? 'No Seats' : 'Book This Ride'}
+            {isNavigatingToBooking
+              ? 'Opening Booking...'
+              : Number.isFinite(Number(availableSeats)) && Number(availableSeats) <= 0
+              ? 'No Seats'
+              : 'Book This Ride'}
           </Text>
-          <Ionicons name="arrow-forward" size={19} color={colors.white} />
+          {!isNavigatingToBooking && (
+            <Ionicons name="arrow-forward" size={19} color={colors.white} />
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>

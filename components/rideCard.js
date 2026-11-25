@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -10,9 +11,12 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../theme/colors';
 import { formatDuration } from '../utils/date';
+import { useToast } from '../context/ToastContext';
 
 export default function RideCard({ ride }) {
   const router = useRouter();
+  const { showToast } = useToast();
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const driverName = ride.driver?.name || '';
   const initial = driverName
@@ -21,68 +25,83 @@ export default function RideCard({ ride }) {
 
   // Navigate to Ride Details with the selected ride data.
   const handlePress = () => {
-    // Combine raw backend row and formatted card fields
-    const raw = ride.rawRide || {};
-    const driverId =
-      ride.driverId ||
-      raw.driver_id ||
-      raw.driverID ||
-      raw.driverId ||
-      ride.driver?.id ||
-      ride.driver?._id;
+    if (isNavigating) return; // Prevent duplicate rapid taps
+    setIsNavigating(true);
 
-    const vehicleId =
-      ride.vehicleId ||
-      raw.vehicle_id ||
-      raw.vehicalID ||
-      raw.vehicleId ||
-      raw.vehicalId ||
-      ride.vehicle?.id ||
-      ride.vehicle?._id;
+    try {
+      // Combine raw backend row and formatted card fields
+      const raw = ride.rawRide || {};
+      const driverId =
+        ride.driverId ||
+        raw.driver_id ||
+        raw.driverID ||
+        raw.driverId ||
+        ride.driver?.id ||
+        ride.driver?._id;
 
-    const selectedRide = {
-      ...raw,
-      ...ride,
-      // Normalized driver and vehicle IDs for the details page
-      driver_id: driverId,
-      driverID: driverId,
-      driverId: driverId,
-      vehicle_id: vehicleId,
-      vehicalID: vehicleId,
-      vehicleId: vehicleId,
+      const vehicleId =
+        ride.vehicleId ||
+        raw.vehicle_id ||
+        raw.vehicalID ||
+        raw.vehicleId ||
+        raw.vehicalId ||
+        ride.vehicle?.id ||
+        ride.vehicle?._id;
 
-      // Location names
-      origin_name: ride.from || raw.origin_name || raw.origin?.name || raw.origin,
-      destination_name: ride.to || raw.destination_name || raw.destination?.name || raw.destination,
-      from: ride.from,
-      to: ride.to,
+      const selectedRide = {
+        ...raw,
+        ...ride,
+        // Normalized driver and vehicle IDs for the details page
+        driver_id: driverId,
+        driverID: driverId,
+        driverId: driverId,
+        vehicle_id: vehicleId,
+        vehicalID: vehicleId,
+        vehicleId: vehicleId,
 
-      // Pricing and seats
-      price_per_seat: ride.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
-      pricePerSeat: ride.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
-      available_seats: ride.seatsFree ?? raw.available_seats ?? raw.availableSeats,
-      availableSeats: ride.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+        // Location names
+        origin_name: ride.from || raw.origin_name || raw.origin?.name || raw.origin,
+        destination_name: ride.to || raw.destination_name || raw.destination?.name || raw.destination,
+        from: ride.from,
+        to: ride.to,
 
-      // Departure and timing
-      departure_at:
-        raw.departure_at ||
-        raw.departureAt ||
-        (ride.date ? `${ride.date}T${ride.departureTime || '00:00'}` : undefined),
-    };
+        // Pricing and seats
+        price_per_seat: ride.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+        pricePerSeat: ride.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+        available_seats: ride.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+        availableSeats: ride.seatsFree ?? raw.available_seats ?? raw.availableSeats,
 
-    router.push({
-      pathname: '/ride-details',
-      params: {
-        ride: JSON.stringify(selectedRide),
-      },
-    });
+        // Departure and timing
+        departure_at:
+          raw.departure_at ||
+          raw.departureAt ||
+          (ride.date ? `${ride.date}T${ride.departureTime || '00:00'}` : undefined),
+      };
+
+      router.push({
+        pathname: '/ride-details',
+        params: {
+          ride: JSON.stringify(selectedRide),
+        },
+      });
+    } catch (err) {
+      showToast({
+        type: 'error',
+        title: 'Navigation Error',
+        message: 'Could not load ride details. Please try again.',
+      });
+    } finally {
+      // Reset navigation lock after transition begins
+      setTimeout(() => setIsNavigating(false), 1000);
+    }
   };
 
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, isNavigating && styles.cardNavigating]}
       onPress={handlePress}
       activeOpacity={0.85}
+      disabled={isNavigating}
     >
       <View style={styles.row}>
         {/* Departure time, duration and arrival time */}
@@ -198,6 +217,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
+  },
+  cardNavigating: {
+    opacity: 0.7,
   },
 
   row: {

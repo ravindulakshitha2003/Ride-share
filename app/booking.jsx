@@ -15,29 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { bookRideSeat } from '../api/rideService';
-
-/* =======================================================
-   DESIGN TOKENS & HELPERS
-======================================================= */
-const C = {
-  primary: '#5B4BDB',
-  secondary: '#312E81',
-  accent: '#F0ABFC',
-  background: '#F8F7FF',
-  surface: '#FFFFFF',
-  text: '#24213B',
-  textMuted: 'rgba(36,33,59,0.6)',
-  border: '#E4E1F5',
-  tint: '#EEEBFF',
-  danger: '#DC2626',
-  success: '#16A34A',
-  successSoft: '#E8F7EE',
-  star: '#F59E0B',
-  amber: '#B45309',
-  amberSoft: '#FEF3C7',
-  greySoft: '#F1F0F7',
-  grey: '#6B7280',
-};
+import { colors as C } from '../theme/colors';
+import { useToast } from '../context/ToastContext';
 
 function formatCurrency(amount, currency = 'Rs') {
   if (amount == null || Number.isNaN(Number(amount))) return `${currency} 0`;
@@ -78,6 +57,7 @@ export default function BookingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
+  const { showToast } = useToast();
 
   // 1. Parse ride passed from ride-details.jsx
   const ride = useMemo(() => {
@@ -117,10 +97,15 @@ export default function BookingScreen() {
   );
 
   const handleConfirmBooking = useCallback(async () => {
+    if (isBooking) return; // Prevent double submission
     const routeId = ride.route_id || ride.id;
 
     if (!routeId) {
-      Alert.alert('Error', 'Invalid route selection. Please go back and try again.');
+      showToast({
+        type: 'error',
+        title: 'Invalid Route',
+        message: 'Invalid route selection. Please go back and try again.',
+      });
       return;
     }
 
@@ -192,6 +177,13 @@ export default function BookingScreen() {
                 dropoffWalkDistanceM: ride.dropoff_distance_meters ?? ride.dropoffDistanceMeters ?? 0,
               });
 
+              showToast({
+                type: 'success',
+                title: 'Request Sent! 🎉',
+                message: 'Your seat request was submitted to the driver.',
+                duration: 4000,
+              });
+
               Alert.alert(
                 'Request Sent! 🎉',
                 'Your seat request was submitted. The driver will review and accept it shortly.',
@@ -203,6 +195,11 @@ export default function BookingScreen() {
                 ]
               );
             } catch (err) {
+              showToast({
+                type: 'error',
+                title: 'Booking Request Failed',
+                message: err.message || 'Could not complete your request.',
+              });
               Alert.alert('Booking Request Failed', err.message || 'Could not complete your request.');
             } finally {
               setIsBooking(false);
@@ -211,7 +208,7 @@ export default function BookingScreen() {
         },
       ]
     );
-  }, [ride, selectedSeats, totalPrice, currency, originName, destinationName, router]);
+  }, [ride, selectedSeats, totalPrice, currency, originName, destinationName, router, isBooking, showToast]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
