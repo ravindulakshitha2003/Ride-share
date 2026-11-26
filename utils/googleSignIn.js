@@ -1,6 +1,7 @@
 // Native Google sign-in. Needs a development build (does NOT work in Expo Go).
 // The module is loaded only when the button is tapped, so Expo Go
 // can still open the app and show the login screen.
+import { NativeModules, TurboModuleRegistry } from 'react-native';
 
 const GOOGLE_WEB_CLIENT_ID = '863305498169-kf3j402h0l0g6soh30npn3p1in65lh8r.apps.googleusercontent.com';
 const GOOGLE_IOS_CLIENT_ID = 'YOUR_IOS_CLIENT_ID.apps.googleusercontent.com';
@@ -8,15 +9,25 @@ const GOOGLE_IOS_CLIENT_ID = 'YOUR_IOS_CLIENT_ID.apps.googleusercontent.com';
 let google = null;
 let configured = false;
 
+// True only in a development/production build that includes the native
+// Google module. In Expo Go this is false.
+function hasNativeGoogle() {
+  return (
+    TurboModuleRegistry.get?.('RNGoogleSignin') != null ||
+    NativeModules.RNGoogleSignin != null
+  );
+}
+
 function loadGoogle() {
   if (!google) {
-    try {
-      google = require('@react-native-google-signin/google-signin');
-    } catch {
+    // Check first: loading the package without its native part shows
+    // an "Uncaught Error" screen in development, even inside try/catch.
+    if (!hasNativeGoogle()) {
       throw new Error(
         'Google sign-in needs a development build. It does not work in Expo Go.'
       );
     }
+    google = require('@react-native-google-signin/google-signin');
   }
 
   if (!configured) {
