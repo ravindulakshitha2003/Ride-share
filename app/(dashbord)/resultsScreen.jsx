@@ -85,6 +85,95 @@ function PressScale({
 }
 
 /* =======================================================
+   PRE-SEARCH WELCOME SECTION
+======================================================= */
+function PreSearchWelcome() {
+  return (
+    <View style={welcomeStyles.container}>
+      <View style={welcomeStyles.heroCard}>
+        <Image
+          source={require('../../assets/routemate-hero.png')}
+          style={welcomeStyles.heroImage}
+          resizeMode="cover"
+        />
+        <LinearGradient
+          colors={['rgba(49,46,129,0.12)', 'rgba(49,46,129,0.94)']}
+          style={welcomeStyles.heroOverlay}
+        >
+          <View style={welcomeStyles.heroBadge}>
+            <Icon name="compass-outline" size={14} color={C.white} />
+            <Text style={welcomeStyles.heroBadgeText}>YOUR JOURNEY STARTS HERE</Text>
+          </View>
+          <View style={welcomeStyles.heroCopy}>
+            <Text style={welcomeStyles.heroTitle}>Where would you like to go?</Text>
+            <Text style={welcomeStyles.heroSubtitle}>
+              Find a ride, share the journey, and make every trip easier.
+            </Text>
+          </View>
+          <View style={welcomeStyles.routeDecoration}>
+            <View style={welcomeStyles.routePoint}>
+              <Icon name="map-marker" size={17} color={C.white} />
+            </View>
+            <View style={welcomeStyles.routeLine} />
+            <View style={welcomeStyles.routePointEnd}>
+              <Icon name="flag-checkered" size={15} color={C.secondary} />
+            </View>
+            <View style={welcomeStyles.routeCar}>
+              <Icon name="car-side" size={25} color={C.white} />
+            </View>
+          </View>
+        </LinearGradient>
+      </View>
+
+      <View style={welcomeStyles.introRow}>
+        <View style={welcomeStyles.introIcon}>
+          <Icon name="map-search-outline" size={22} color={C.primary} />
+        </View>
+        <View style={welcomeStyles.introCopy}>
+          <Text style={welcomeStyles.introTitle}>Plan your next ride</Text>
+          <Text style={welcomeStyles.introText}>
+            Enter your starting point and destination in the search form above.
+          </Text>
+        </View>
+      </View>
+
+      <View style={welcomeStyles.featureGrid}>
+        <View style={welcomeStyles.featureCard}>
+          <View style={[welcomeStyles.featureIcon, { backgroundColor: C.tint }]}>
+            <Icon name="wallet-outline" size={21} color={C.primary} />
+          </View>
+          <Text style={welcomeStyles.featureTitle}>Save money</Text>
+          <Text style={welcomeStyles.featureText}>Share travel costs with others.</Text>
+        </View>
+
+        <View style={welcomeStyles.featureCard}>
+          <View style={[welcomeStyles.featureIcon, { backgroundColor: C.successSoft }]}>
+            <Icon name="shield-check-outline" size={21} color={C.success} />
+          </View>
+          <Text style={welcomeStyles.featureTitle}>Travel safely</Text>
+          <Text style={welcomeStyles.featureText}>Review ride and driver details.</Text>
+        </View>
+
+        <View style={welcomeStyles.featureCard}>
+          <View style={[welcomeStyles.featureIcon, { backgroundColor: C.lightPink }]}>
+            <Icon name="leaf-outline" size={21} color={C.secondary} />
+          </View>
+          <Text style={welcomeStyles.featureTitle}>Go greener</Text>
+          <Text style={welcomeStyles.featureText}>Make better use of every seat.</Text>
+        </View>
+      </View>
+
+      <View style={welcomeStyles.searchHint}>
+        <Icon name="arrow-up-circle-outline" size={20} color={C.primary} />
+        <Text style={welcomeStyles.searchHintText}>
+          Start by choosing your origin and destination above.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/* =======================================================
    HELPERS & FORMATTERS
 ======================================================= */
 const VEHICLE_ICONS = {
@@ -1295,48 +1384,34 @@ export default function ResultsScreen({ route }) {
         <Text style={styles.buttonText}>Try again</Text>
       </PressScale>
     </View>
+  ) : !hasSearched ? (
+    <PreSearchWelcome />
   ) : (
     <View style={styles.empty}>
       <View style={styles.emptyIcon}>
         <Icon
-          name={
-            !hasSearched
-              ? 'magnify'
-              : filteredOut
-              ? 'filter-off-outline'
-              : 'car-off'
-          }
+          name={filteredOut ? 'filter-off-outline' : 'car-off'}
           size={44}
           color={C.primary}
         />
       </View>
       <Text style={styles.emptyTitle}>
-        {!hasSearched
-          ? 'Ready to find a ride?'
-          : filteredOut
-          ? 'No rides match your filters'
-          : 'No rides found'}
+        {filteredOut ? 'No rides match your filters' : 'No rides found'}
       </Text>
       <Text style={styles.emptyText}>
-        {!hasSearched
-          ? 'Choose your origin, destination, travel date and passenger count above.'
-          : filteredOut
+        {filteredOut
           ? 'Try turning off a filter to see more rides.'
           : 'There are no rides for these places on this date. Try another date or location.'}
       </Text>
-      {hasSearched ? (
-        <PressScale
-          onPress={
-            filteredOut ? clearFilters : () => setSearchOpen(true)
-          }
-          label={filteredOut ? 'Clear filters' : 'Change search'}
-          style={styles.button}
-        >
-          <Text style={styles.buttonText}>
-            {filteredOut ? 'Clear filters' : 'Change search'}
-          </Text>
-        </PressScale>
-      ) : null}
+      <PressScale
+        onPress={filteredOut ? clearFilters : () => setSearchOpen(true)}
+        label={filteredOut ? 'Clear filters' : 'Change search'}
+        style={styles.button}
+      >
+        <Text style={styles.buttonText}>
+          {filteredOut ? 'Clear filters' : 'Change search'}
+        </Text>
+      </PressScale>
     </View>
   );
 
@@ -1371,6 +1446,187 @@ export default function ResultsScreen({ route }) {
 /* =======================================================
    STYLES
 ======================================================= */
+const welcomeStyles = StyleSheet.create({
+  container: {
+    paddingBottom: SP.xl,
+  },
+  heroCard: {
+    height: 250,
+    borderRadius: R.lg,
+    overflow: 'hidden',
+    backgroundColor: C.secondary,
+    ...SHADOW,
+  },
+  heroImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  heroOverlay: {
+    flex: 1,
+    justifyContent: 'space-between',
+    padding: SP.xl,
+  },
+  heroBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SP.md,
+    paddingVertical: SP.sm,
+    borderRadius: R.pill,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+  },
+  heroBadgeText: {
+    color: C.white,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginLeft: 6,
+  },
+  heroCopy: {
+    marginTop: 'auto',
+    paddingTop: SP.xl,
+    paddingRight: SP.xl,
+  },
+  heroTitle: {
+    color: C.white,
+    fontSize: 27,
+    lineHeight: 33,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+  },
+  heroSubtitle: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: SP.sm,
+    maxWidth: 290,
+  },
+  routeDecoration: {
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SP.md,
+    width: 170,
+  },
+  routePoint: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: C.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  routeLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: 'rgba(255,255,255,0.75)',
+  },
+  routePointEnd: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: C.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  routeCar: {
+    position: 'absolute',
+    left: 69,
+    top: 2,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: C.primary,
+    borderWidth: 2,
+    borderColor: C.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  introRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.white,
+    borderRadius: R.md,
+    padding: SP.lg,
+    marginTop: SP.lg,
+    ...SHADOW,
+  },
+  introIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: R.md,
+    backgroundColor: C.tint,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SP.md,
+  },
+  introCopy: {
+    flex: 1,
+  },
+  introTitle: {
+    color: C.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  introText: {
+    color: C.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3,
+  },
+  featureGrid: {
+    flexDirection: 'row',
+    marginTop: SP.md,
+    marginHorizontal: -SP.xs,
+  },
+  featureCard: {
+    flex: 1,
+    minHeight: 136,
+    backgroundColor: C.white,
+    borderRadius: R.md,
+    padding: SP.md,
+    marginHorizontal: SP.xs,
+    ...SHADOW,
+  },
+  featureIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SP.sm,
+  },
+  featureTitle: {
+    color: C.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  featureText: {
+    color: C.textMuted,
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 4,
+  },
+  searchHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: SP.lg,
+    paddingHorizontal: SP.sm,
+  },
+  searchHintText: {
+    color: C.primary,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: SP.sm,
+    flexShrink: 1,
+    textAlign: 'center',
+  },
+});
+
 const cardStyles = StyleSheet.create({
   card: {
     backgroundColor: C.white,
