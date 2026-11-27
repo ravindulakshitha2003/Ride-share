@@ -1,808 +1,400 @@
+/**
+ * vehicle.jsx
+ * ---------------------------------------------------------------------------
+ * Registered vehicles page for the Share-Ride driver.
+ * Place this file beside addVehical.jsx so both pages use the same imports.
+ * Route: /vehicle
+ */
 
-import React, { useState } from 'react';
-
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
   View,
+  Text,
+  Pressable,
+  ScrollView,
+  Image,
+  ActivityIndicator,
+  RefreshControl,
+  StyleSheet,
+  Platform,
 } from 'react-native';
-
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { colors } from '../../theme/colors';
+import client from '../../api/client';
 
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+const C = {
+  ...colors,
+  status: {
+    pending: colors.warning,
+    approved: colors.success,
+    rejected: colors.error,
+    inactive: colors.grey,
+    expired: colors.amber,
+  },
+};
+const R = { sm: 12, md: 16, lg: 24, pill: 999 };
+const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 };
+const SHADOW = Platform.select({
+  ios: {
+    shadowColor: C.primary,
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  android: { elevation: 6, shadowColor: C.primary },
+  default: {},
+});
+const MAX_W = 560;
+const FILTERS = ['All', 'Pending', 'Approved', 'Rejected', 'Inactive', 'Expired'];
 
-import useVehicles from '../../hooks/useVehicles';
-import colors from '../../theme/colors';
-
-// -----------------------------------------------------------------------------
-// DATE FORMATTER
-// -----------------------------------------------------------------------------
-
-function formatDate(value) {
-  if (!value) return 'Not provided';
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return 'Not provided';
-  }
-
-  return date.toLocaleDateString();
+function normalizeVehicle(vehicle) {
+  const photo = vehicle.vehiclePhoto || vehicle.photoUrl || vehicle.vehiclePhotoUrl || vehicle.imageUrl || null;
+  const photoUrl = typeof photo === 'string' ? photo : photo?.url || photo?.secure_url || null;
+  return {
+    ...vehicle,
+    _id: vehicle._id || vehicle.id,
+    type: vehicle.vehicleType || vehicle.type || '',
+    make: vehicle.brand || vehicle.make || '',
+    colour: vehicle.color || vehicle.colour || '',
+    plateNo: vehicle.plateNumber || vehicle.plateNo || vehicle.plate || '',
+    seats: vehicle.passengerSeats ?? vehicle.seats ?? 0,
+    hasAC: vehicle.airConditioning ?? vehicle.hasAC ?? false,
+    luggage: vehicle.luggageSpace || vehicle.luggage || '',
+    crNumber: vehicle.crNumber || vehicle.registrationNumber || '',
+    revenueLicenceExpiry: vehicle.revenueLicenceExpiry || vehicle.revenueLicenseExpiry || '',
+    insuranceExpiry: vehicle.insuranceExpiry || '',
+    photoUrl: photoUrl || vehicle.photoKeys?.[0] || null,
+    status: vehicle.status || 'Pending',
+  };
 }
 
-// -----------------------------------------------------------------------------
-// LABEL FORMATTER
-// -----------------------------------------------------------------------------
-
-function formatLabel(value) {
-  if (!value) return 'Not provided';
-
-  return String(value)
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+async function getVehicles() {
+  const response = await client.get('/api/vehicles/me');
+  const data = response.data;
+  const list = Array.isArray(data) ? data : data?.vehicles || data?.data || [];
+  return list.map(normalizeVehicle);
 }
 
-// -----------------------------------------------------------------------------
-// INFORMATION ROW
-// -----------------------------------------------------------------------------
-
-function InfoRow({ icon, label, value, last = false }) {
+function GradientScreen({ children }) {
   return (
-    <View style={[styles.infoRow, !last && styles.infoDivider]}>
+    <LinearGradient colors={[C.background, C.gradientEnd]} style={styles.flex}>
+      <View pointerEvents="none" style={styles.glowA} />
+      <View pointerEvents="none" style={styles.glowB} />
+      {children}
+    </LinearGradient>
+  );
+}
+
+function StatusBadge({ status }) {
+  const key = String(status || 'Pending').toLowerCase();
+  const color = C.status[key] || C.status.inactive;
+  return (
+    <View style={[styles.statusBadge, { backgroundColor: `${color}1F` }]}>
+      <View style={[styles.statusDot, { backgroundColor: color }]} />
+      <Text style={[styles.statusText, { color }]}>{status || 'Pending'}</Text>
+    </View>
+  );
+}
+
+function FilterChip({ label, selected, onPress }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.filterChip, selected && styles.filterChipSelected]}>
+      <Text style={[styles.filterText, selected && styles.filterTextSelected]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function InfoItem({ icon, label, value }) {
+  return (
+    <View style={styles.infoItem}>
       <View style={styles.infoIcon}>
-        <Icon
-          name={icon}
-          size={21}
-          color={colors.primary}
-        />
+        <Icon name={icon} size={18} color={C.primary} />
       </View>
-
-      <View style={styles.infoContent}>
-        <Text style={styles.infoLabel}>
-          {label}
-        </Text>
-
-        <Text style={styles.infoValue}>
-          {value === null || value === undefined || value === ''
-            ? 'Not provided'
-            : String(value)}
-        </Text>
+      <View style={styles.infoCopy}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <Text style={styles.infoValue} numberOfLines={2}>{value || 'Not provided'}</Text>
       </View>
     </View>
   );
 }
 
-// -----------------------------------------------------------------------------
-// VEHICLE CARD
-// -----------------------------------------------------------------------------
-
-function VehicleCard({ vehicle }) {
-  const [expanded, setExpanded] = useState(false);
-  const [imageError, setImageError] = useState(false);
-
-  const vehicleName = [
-    vehicle.brand,
-    vehicle.model,
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  // Supports both the mapped context object and raw backend object.
-  const photoUrl = vehicle.photoUrl || vehicle.vehiclePhotoUrl;
-  const plateNumber = vehicle.plate || vehicle.plateNumber;
-  const vehicleType = vehicle.type || vehicle.vehicleType;
-  const passengerSeats = vehicle.seats ?? vehicle.passengerSeats;
-  const airConditioning = vehicle.hasAC ?? vehicle.airConditioning;
-  const description = vehicle.description || vehicle.vehicleDescription;
-
+function VehicleCard({ vehicle, expanded, onToggle }) {
   return (
     <View style={styles.vehicleCard}>
-
-      {/* COMPACT VEHICLE INFORMATION */}
-
-      <View style={styles.compactContent}>
-        <View style={styles.vehicleImageWrapper}>
-          {photoUrl && !imageError ? (
-            <Image
-              source={{ uri: photoUrl }}
-              style={styles.vehicleImage}
-              resizeMode="cover"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <Icon
-                name="car"
-                size={42}
-                color={colors.primary}
-              />
-            </View>
-          )}
-        </View>
-
-        <View style={styles.compactDetails}>
-          <Text
-            style={styles.vehicleName}
-            numberOfLines={1}
-          >
-            {vehicleName || 'Vehicle'}
-          </Text>
-
-          <Text style={styles.vehicleSubtitle}>
-            {formatLabel(vehicleType)} · {vehicle.year || 'Year unavailable'}
-          </Text>
-
-          <View style={styles.plateBadge}>
-            <Icon
-              name="card-account-details-outline"
-              size={16}
-              color={colors.secondary}
-            />
-
-            <Text style={styles.plateText}>
-              {plateNumber || 'No plate number'}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* SEE MORE / SEE LESS */}
-
-      <TouchableOpacity
-        style={styles.seeMoreButton}
-        activeOpacity={0.75}
-        onPress={() => setExpanded((previous) => !previous)}
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-      >
-        <Text style={styles.seeMoreText}>
-          {expanded ? 'See less' : 'See more'}
-        </Text>
-
-        <Icon
-          name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={22}
-          color={colors.primary}
-        />
-      </TouchableOpacity>
-
-      {/* EXPANDED VEHICLE INFORMATION */}
-
-      {expanded && (
-        <View style={styles.expandedSection}>
-
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              Vehicle information
-            </Text>
-          </View>
-
-          <InfoRow
-            icon="car-outline"
-            label="Vehicle type"
-            value={formatLabel(vehicleType)}
-          />
-
-          <InfoRow
-            icon="card-account-details-outline"
-            label="Plate number"
-            value={plateNumber}
-          />
-
-          <InfoRow
-            icon="palette-outline"
-            label="Colour"
-            value={vehicle.color}
-          />
-
-          <InfoRow
-            icon="calendar-outline"
-            label="Manufacture year"
-            value={vehicle.year}
-          />
-
-          <InfoRow
-            icon="account-group-outline"
-            label="Passenger seats"
-            value={
-              passengerSeats !== undefined && passengerSeats !== null
-                ? `${passengerSeats} seats`
-                : 'Not provided'
-            }
-          />
-
-          <InfoRow
-            icon="snowflake"
-            label="Air conditioning"
-            value={
-              airConditioning
-                ? 'Available'
-                : 'Not available'
-            }
-          />
-
-          <InfoRow
-            icon="bag-suitcase-outline"
-            label="Luggage space"
-            value={formatLabel(vehicle.luggageSpace)}
-          />
-
-          <InfoRow
-            icon="text"
-            label="Vehicle description"
-            value={description}
-            last
-          />
-
-          {/* REGISTRATION DETAILS */}
-
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              Registration details
-            </Text>
-          </View>
-
-          <InfoRow
-            icon="file-document-outline"
-            label="CR number"
-            value={vehicle.crNumber}
-          />
-
-          <InfoRow
-            icon="calendar-check-outline"
-            label="Revenue licence expiry"
-            value={formatDate(vehicle.revenueLicenceExpiry)}
-          />
-
-          <InfoRow
-            icon="shield-check-outline"
-            label="Insurance expiry"
-            value={formatDate(vehicle.insuranceExpiry)}
-            last
-          />
-
-          {/* RECORD INFORMATION */}
-
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              Record information
-            </Text>
-          </View>
-
-          <InfoRow
-            icon="clock-outline"
-            label="Registered on"
-            value={formatDate(vehicle.createdAt)}
-          />
-
-          <InfoRow
-            icon="update"
-            label="Last updated"
-            value={formatDate(vehicle.updatedAt)}
-            last
-          />
-
-        </View>
-      )}
-    </View>
-  );
-}
-
-// -----------------------------------------------------------------------------
-// VEHICLE DETAILS SCREEN
-// -----------------------------------------------------------------------------
-
-export default function VehicleDetailsScreen() {
-  const insets = useSafeAreaInsets();
-
-  const {
-    vehicles,
-    loading,
-    error,
-    refreshVehicles,
-  } = useVehicles();
-
-  // ---------------------------------------------------------------------------
-  // COMMON SAFE AREA WRAPPER
-  // ---------------------------------------------------------------------------
-
-  const renderPage = (content) => (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={['top', 'left', 'right']}
-    >
-      <LinearGradient
-        colors={[
-          colors.background,
-          colors.gradientEnd,
-        ]}
-        style={styles.background}
-      >
-        {content}
-      </LinearGradient>
-    </SafeAreaView>
-  );
-
-  // ---------------------------------------------------------------------------
-  // LOADING STATE
-  // ---------------------------------------------------------------------------
-
-  if (loading) {
-    return renderPage(
-      <View style={styles.center}>
-        <ActivityIndicator
-          size="large"
-          color={colors.primary}
-        />
-
-        <Text style={styles.loadingText}>
-          Loading vehicle details...
-        </Text>
-      </View>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // ERROR STATE
-  // ---------------------------------------------------------------------------
-
-  if (error) {
-    return renderPage(
-      <View style={styles.center}>
-        <View style={styles.emptyIcon}>
-          <Icon
-            name="alert-circle-outline"
-            size={42}
-            color={colors.primary}
-          />
-        </View>
-
-        <Text style={styles.emptyTitle}>
-          Unable to load vehicles
-        </Text>
-
-        <Text style={styles.emptyDescription}>
-          {error}
-        </Text>
-
-        <TouchableOpacity
-          style={styles.retryButton}
-          onPress={refreshVehicles}
-          activeOpacity={0.8}
-        >
-          <Icon
-            name="refresh"
-            size={20}
-            color={colors.white}
-          />
-
-          <Text style={styles.retryButtonText}>
-            Try again
-          </Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // MAIN SCREEN
-  // ---------------------------------------------------------------------------
-
-  return renderPage(
-    <View style={styles.screenContent}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.container,
-          {
-            paddingBottom: Math.max(insets.bottom, 16) + 32,
-          },
-        ]}
-      >
-
-        {/* PAGE HEADING */}
-
-        <View style={styles.topBar}>
-          <View style={styles.topBarIcon}>
-            <Icon
-              name="car-outline"
-              size={24}
-              color={colors.primary}
-            />
-          </View>
-
-          <View style={styles.headingContent}>
-            <Text style={styles.topBarTitle}>
-              Vehicle details
-            </Text>
-
-            <Text style={styles.topBarSubtitle}>
-              Your registered vehicles
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.refreshIcon}
-            onPress={refreshVehicles}
-            activeOpacity={0.7}
-            accessibilityLabel="Refresh vehicles"
-          >
-            <Icon
-              name="refresh"
-              size={22}
-              color={colors.primary}
-            />
-          </TouchableOpacity>
-        </View>
-
-        {/* EMPTY STATE */}
-
-        {vehicles.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <View style={styles.emptyIcon}>
-              <Icon
-                name="car-off"
-                size={42}
-                color={colors.primary}
-              />
-            </View>
-
-            <Text style={styles.emptyTitle}>
-              No vehicles found
-            </Text>
-
-            <Text style={styles.emptyDescription}>
-              You haven't registered a vehicle yet.
-            </Text>
-          </View>
+      <Pressable onPress={onToggle} accessibilityRole="button" accessibilityLabel={`View ${vehicle.make} ${vehicle.model} details`}>
+        {vehicle.photoUrl ? (
+          <Image source={{ uri: vehicle.photoUrl }} style={styles.vehicleImage} resizeMode="cover" />
         ) : (
-
-          /* VEHICLE LIST */
-
-          <>
-            <View style={styles.listHeading}>
-              <Text style={styles.sectionTitle}>
-                My vehicles
-              </Text>
-
-              <Text style={styles.vehicleCount}>
-                {vehicles.length}{' '}
-                {vehicles.length === 1 ? 'vehicle' : 'vehicles'}
-              </Text>
-            </View>
-
-            {vehicles.map((vehicle) => (
-              <VehicleCard
-                key={vehicle.id || vehicle._id}
-                vehicle={vehicle}
-              />
-            ))}
-          </>
+          <View style={[styles.vehicleImage, styles.imagePlaceholder]}>
+            <Icon name="car-side" size={54} color={C.primary} />
+            <Text style={styles.placeholderText}>No vehicle photo</Text>
+          </View>
         )}
+        <View style={styles.vehicleContent}>
+          <View style={styles.vehicleTopRow}>
+            <View style={styles.vehicleTitleWrap}>
+              <Text style={styles.vehicleTitle} numberOfLines={1}>{vehicle.make || 'Vehicle'} {vehicle.model}</Text>
+              <Text style={styles.vehicleSubtitle}>{[vehicle.year, vehicle.colour, vehicle.type].filter(Boolean).join('  ·  ')}</Text>
+            </View>
+            <StatusBadge status={vehicle.status} />
+          </View>
+          <View style={styles.plateRow}>
+            <View style={styles.plateBadge}>
+              <Icon name="card-account-details-outline" size={16} color={C.primary} />
+              <Text style={styles.plateText}>{vehicle.plateNo || 'Plate not added'}</Text>
+            </View>
+            <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={24} color={C.textMuted} />
+          </View>
+          <View style={styles.quickFacts}>
+            <View style={styles.factPill}><Icon name="seat-passenger" size={15} color={C.primary} /><Text style={styles.factText}>{vehicle.seats} seats</Text></View>
+            <View style={styles.factPill}><Icon name="snowflake" size={15} color={C.primary} /><Text style={styles.factText}>{vehicle.hasAC ? 'A/C' : 'No A/C'}</Text></View>
+            <View style={styles.factPill}><Icon name="bag-suitcase-outline" size={15} color={C.primary} /><Text style={styles.factText}>{vehicle.luggage || 'Luggage N/A'}</Text></View>
+          </View>
+        </View>
+      </Pressable>
 
-      </ScrollView>
+      {expanded ? (
+        <View style={styles.expandedArea}>
+          <View style={styles.sectionDivider} />
+          <Text style={styles.sectionHeading}>Vehicle information</Text>
+          <View style={styles.infoGrid}>
+            <InfoItem icon="car-info" label="Vehicle type" value={vehicle.type} />
+            <InfoItem icon="palette-outline" label="Colour" value={vehicle.colour} />
+            <InfoItem icon="account-group-outline" label="Passenger seats" value={String(vehicle.seats || 0)} />
+            <InfoItem icon="snowflake" label="Air conditioning" value={vehicle.hasAC ? 'Available' : 'Not available'} />
+            <InfoItem icon="bag-suitcase-outline" label="Luggage space" value={vehicle.luggage} />
+            <InfoItem icon="file-document-outline" label="CR number" value={vehicle.crNumber} />
+          </View>
+          <Text style={[styles.sectionHeading, { marginTop: SP.lg }]}>Document expiry</Text>
+          <View style={styles.expiryRow}>
+            <View style={styles.expiryCopy}>
+              <Text style={styles.expiryLabel}>Revenue licence</Text>
+              <Text style={styles.expiryValue}>{vehicle.revenueLicenceExpiry || 'Not provided'}</Text>
+            </View>
+            <Icon name="calendar-check-outline" size={20} color={C.primary} />
+          </View>
+          <View style={styles.expiryRow}>
+            <View style={styles.expiryCopy}>
+              <Text style={styles.expiryLabel}>Insurance</Text>
+              <Text style={styles.expiryValue}>{vehicle.insuranceExpiry || 'Not provided'}</Text>
+            </View>
+            <Icon name="shield-check-outline" size={20} color={C.primary} />
+          </View>
+          <Text style={styles.recordText}>Added {vehicle.createdAt ? new Date(vehicle.createdAt).toLocaleDateString() : 'date unavailable'}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-// -----------------------------------------------------------------------------
-// STYLES
-// -----------------------------------------------------------------------------
+export default function VehiclePage() {
+  const router = useRouter();
+  const [vehicles, setVehicles] = useState([]);
+  const [filter, setFilter] = useState('All');
+  const [expandedId, setExpandedId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadVehicles = useCallback(async (refresh = false) => {
+    if (refresh) setRefreshing(true);
+    else setLoading(true);
+    setError('');
+    try {
+      setVehicles(await getVehicles());
+    } catch (e) {
+      setError(e.response?.data?.message || e.message || 'Could not load your vehicles.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadVehicles();
+  }, [loadVehicles]);
+
+  const counts = useMemo(() => ({
+    All: vehicles.length,
+    Pending: vehicles.filter((v) => String(v.status).toLowerCase() === 'pending').length,
+    Approved: vehicles.filter((v) => String(v.status).toLowerCase() === 'approved').length,
+    Rejected: vehicles.filter((v) => String(v.status).toLowerCase() === 'rejected').length,
+    Inactive: vehicles.filter((v) => String(v.status).toLowerCase() === 'inactive').length,
+    Expired: vehicles.filter((v) => String(v.status).toLowerCase() === 'expired').length,
+  }), [vehicles]);
+
+  const visibleVehicles = useMemo(() => filter === 'All'
+    ? vehicles
+    : vehicles.filter((v) => String(v.status).toLowerCase() === filter.toLowerCase()), [vehicles, filter]);
+
+  return (
+    <GradientScreen>
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.flex}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadVehicles(true)} tintColor={C.primary} colors={[C.primary]} />}
+        >
+          <View style={styles.shell}>
+            <View style={styles.headerRow}>
+              <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace('/')} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
+                <Icon name="arrow-left" size={23} color={C.text} />
+              </Pressable>
+              <View style={styles.headerTitleWrap}>
+                <Text style={styles.eyebrow}>DRIVER GARAGE</Text>
+                <Text style={styles.heading}>My vehicles</Text>
+              </View>
+              <Pressable onPress={() => router.push('/Addvehical')} style={styles.addIconButton} accessibilityRole="button" accessibilityLabel="Add a vehicle">
+                <Icon name="plus" size={24} color={C.white} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.subtitle}>Manage your registered vehicles and keep their details up to date.</Text>
+
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryIcon}><Icon name="car-multiple" size={26} color={C.primary} /></View>
+              <View style={styles.summaryCopy}>
+                <Text style={styles.summaryNumber}>{vehicles.length}</Text>
+                <Text style={styles.summaryLabel}>{vehicles.length === 1 ? 'Registered vehicle' : 'Registered vehicles'}</Text>
+              </View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryStatus}>
+                <Text style={styles.summaryStatusNumber}>{counts.Approved}</Text>
+                <Text style={styles.summaryStatusLabel}>Approved</Text>
+              </View>
+              <View style={styles.summaryStatus}>
+                <Text style={styles.summaryStatusNumber}>{counts.Pending}</Text>
+                <Text style={styles.summaryStatusLabel}>Pending</Text>
+              </View>
+            </View>
+
+            <View style={styles.listHeadingRow}>
+              <View>
+                <Text style={styles.sectionTitle}>Your garage</Text>
+                <Text style={styles.listCount}>{visibleVehicles.length} {visibleVehicles.length === 1 ? 'vehicle' : 'vehicles'} shown</Text>
+              </View>
+              <Pressable onPress={() => loadVehicles(true)} style={styles.refreshButton} accessibilityRole="button" accessibilityLabel="Refresh vehicles">
+                <Icon name="refresh" size={19} color={C.primary} />
+              </Pressable>
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+              {FILTERS.map((item) => (
+                <FilterChip key={item} label={`${item}  ${counts[item]}`} selected={filter === item} onPress={() => setFilter(item)} />
+              ))}
+            </ScrollView>
+
+            {loading ? (
+              <View style={styles.stateCard}><ActivityIndicator size="large" color={C.primary} /><Text style={styles.stateText}>Loading your vehicles...</Text></View>
+            ) : error ? (
+              <View style={styles.stateCard}>
+                <View style={styles.stateIcon}><Icon name="alert-circle-outline" size={30} color={C.danger} /></View>
+                <Text style={styles.stateTitle}>Unable to load vehicles</Text>
+                <Text style={styles.stateText}>{error}</Text>
+                <Pressable onPress={() => loadVehicles()} style={styles.retryButton}><Text style={styles.retryText}>Try again</Text></Pressable>
+              </View>
+            ) : visibleVehicles.length === 0 ? (
+              <View style={styles.stateCard}>
+                <View style={styles.stateIcon}><Icon name="car-outline" size={34} color={C.primary} /></View>
+                <Text style={styles.stateTitle}>{filter === 'All' ? 'Your garage is empty' : `No ${filter.toLowerCase()} vehicles`}</Text>
+                <Text style={styles.stateText}>{filter === 'All' ? 'Add your first vehicle to start publishing rides.' : 'Try another status filter to see your vehicles.'}</Text>
+                {filter === 'All' ? <Pressable onPress={() => router.push('/Addvehical')} style={styles.retryButton}><Text style={styles.retryText}>Add a vehicle</Text></Pressable> : null}
+              </View>
+            ) : (
+              visibleVehicles.map((vehicle, index) => (
+                <VehicleCard
+                  key={vehicle._id || `${vehicle.plateNo}-${index}`}
+                  vehicle={vehicle}
+                  expanded={expandedId === vehicle._id}
+                  onToggle={() => setExpandedId((current) => current === vehicle._id ? null : vehicle._id)}
+                />
+              ))
+            )}
+
+            <Pressable onPress={() => router.push('/Addvehical')} style={styles.addVehicleButton}>
+              <Icon name="plus-circle-outline" size={21} color={C.white} />
+              <Text style={styles.addVehicleText}>Add another vehicle</Text>
+            </Pressable>
+            <View style={{ height: SP.xxxl }} />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </GradientScreen>
+  );
+}
 
 const styles = StyleSheet.create({
-
-  // SAFE AREA
-
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-
-  background: {
-    flex: 1,
-  },
-
-  screenContent: {
-    flex: 1,
-  },
-
-  container: {
-    width: '100%',
-    maxWidth: 560,
-    alignSelf: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-
-  // CENTER CONTENT
-
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-
-  loadingText: {
-    color: colors.textMuted,
-    fontSize: 14,
-    marginTop: 16,
-  },
-
-  // TOP BAR
-
-  topBar: {
-    minHeight: 64,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 24,
-  },
-
-  topBarIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  headingContent: {
-    flex: 1,
-  },
-
-  topBarTitle: {
-    fontSize: 21,
-    fontWeight: '800',
-    color: colors.secondary,
-  },
-
-  topBarSubtitle: {
-    fontSize: 13,
-    color: colors.textMuted,
-    marginTop: 3,
-  },
-
-  refreshIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // LIST HEADING
-
-  listHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: colors.secondary,
-  },
-
-  vehicleCount: {
-    fontSize: 13,
-    color: colors.textMuted,
-  },
-
-  // VEHICLE CARD
-
-  vehicleCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 22,
-    padding: 16,
-    marginBottom: 18,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.10,
-    shadowRadius: 16,
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    elevation: 4,
-  },
-
-  compactContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-
-  vehicleImageWrapper: {
-    width: 112,
-    height: 100,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: colors.tint,
-  },
-
-  vehicleImage: {
-    width: '100%',
-    height: '100%',
-  },
-
-  imagePlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.tint,
-  },
-
-  compactDetails: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  vehicleName: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.text,
-  },
-
-  vehicleSubtitle: {
-    fontSize: 13,
-    color: colors.textMuted,
-    marginTop: 6,
-  },
-
-  plateBadge: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: colors.tint,
-    borderRadius: 30,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    marginTop: 12,
-  },
-
-  plateText: {
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    color: colors.secondary,
-  },
-
-  // EXPAND BUTTON
-
-  seeMoreButton: {
-    minHeight: 46,
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.borderSubtle,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-
-  seeMoreText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-
-  // EXPANDED INFORMATION
-
-  expandedSection: {
-    paddingTop: 8,
-  },
-
-  sectionHeader: {
-    marginTop: 20,
-    marginBottom: 8,
-  },
-
-  infoRow: {
-    minHeight: 68,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 8,
-  },
-
-  infoDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSubtle,
-  },
-
-  infoIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: colors.tint,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  infoContent: {
-    flex: 1,
-    gap: 4,
-  },
-
-  infoLabel: {
-    fontSize: 12,
-    color: colors.textMuted,
-  },
-
-  infoValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-
-  // EMPTY STATE
-
-  emptyCard: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 22,
-    padding: 28,
-    marginTop: 16,
-  },
-
-  emptyIcon: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: colors.tint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 18,
-  },
-
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: colors.secondary,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-
-  emptyDescription: {
-    fontSize: 14,
-    lineHeight: 21,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginBottom: 18,
-  },
-
-  // RETRY BUTTON
-
-  retryButton: {
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingHorizontal: 24,
-    borderRadius: 14,
-    backgroundColor: colors.primary,
-  },
-
-  retryButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.white,
-  },
+  flex: { flex: 1 },
+  glowA: { position: 'absolute', top: -80, right: -70, width: 240, height: 240, borderRadius: 120, backgroundColor: C.accent, opacity: 0.28 },
+  glowB: { position: 'absolute', bottom: 120, left: -100, width: 220, height: 220, borderRadius: 110, backgroundColor: C.primary, opacity: 0.1 },
+  scrollContent: { paddingBottom: SP.xxl },
+  shell: { width: '100%', maxWidth: MAX_W, alignSelf: 'center', paddingHorizontal: 20 },
+  headerRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center' },
+  backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', ...SHADOW },
+  headerTitleWrap: { flex: 1, marginLeft: SP.md },
+  eyebrow: { fontSize: 10, letterSpacing: 1.5, fontWeight: '800', color: C.secondary },
+  heading: { fontSize: 27, lineHeight: 32, fontWeight: '800', color: C.text, letterSpacing: -0.5 },
+  addIconButton: { width: 44, height: 44, borderRadius: 15, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', ...SHADOW },
+  subtitle: { fontSize: 14, lineHeight: 21, color: C.textMuted, marginTop: SP.md, marginBottom: SP.xl },
+  summaryCard: { backgroundColor: C.surface, borderRadius: R.lg, padding: SP.lg, flexDirection: 'row', alignItems: 'center', ...SHADOW },
+  summaryIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: C.tint, alignItems: 'center', justifyContent: 'center' },
+  summaryCopy: { flex: 1, marginLeft: SP.md },
+  summaryNumber: { fontSize: 26, lineHeight: 30, fontWeight: '800', color: C.text },
+  summaryLabel: { fontSize: 11, color: C.textMuted, marginTop: 2 },
+  summaryDivider: { width: 1, height: 42, backgroundColor: C.borderSubtle, marginHorizontal: SP.md },
+  summaryStatus: { alignItems: 'center', minWidth: 48 },
+  summaryStatusNumber: { fontSize: 19, fontWeight: '800', color: C.text },
+  summaryStatusLabel: { fontSize: 10, color: C.textMuted, marginTop: 2 },
+  listHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: SP.xxl, marginBottom: SP.md },
+  sectionTitle: { fontSize: 20, fontWeight: '800', color: C.text },
+  listCount: { fontSize: 12, color: C.textMuted, marginTop: 3 },
+  refreshButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.borderSubtle },
+  filters: { paddingBottom: SP.md },
+  filterChip: { minHeight: 36, borderRadius: R.pill, borderWidth: 1, borderColor: C.borderSubtle, backgroundColor: C.surface, paddingHorizontal: SP.md, alignItems: 'center', justifyContent: 'center', marginRight: SP.sm },
+  filterChipSelected: { backgroundColor: C.tint, borderColor: C.primary },
+  filterText: { fontSize: 12, fontWeight: '600', color: C.textMuted },
+  filterTextSelected: { color: C.primary, fontWeight: '800' },
+  vehicleCard: { backgroundColor: C.surface, borderRadius: R.lg, padding: SP.md, marginBottom: SP.lg, ...SHADOW },
+  vehicleImage: { width: '100%', height: 170, borderRadius: R.md, backgroundColor: C.background },
+  imagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  placeholderText: { color: C.textMuted, fontSize: 12, marginTop: SP.xs },
+  vehicleContent: { paddingHorizontal: SP.xs, paddingTop: SP.md },
+  vehicleTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  vehicleTitleWrap: { flex: 1, paddingRight: SP.sm },
+  vehicleTitle: { fontSize: 18, fontWeight: '800', color: C.text },
+  vehicleSubtitle: { fontSize: 12, color: C.textMuted, marginTop: 4 },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', borderRadius: R.pill, paddingHorizontal: 10, paddingVertical: 6 },
+  statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
+  statusText: { fontSize: 11, fontWeight: '800', textTransform: 'capitalize' },
+  plateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: SP.md },
+  plateBadge: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: C.borderSubtle, backgroundColor: C.background, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 7 },
+  plateText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.6, color: C.text, marginLeft: 7 },
+  quickFacts: { flexDirection: 'row', flexWrap: 'wrap', marginTop: SP.md },
+  factPill: { flexDirection: 'row', alignItems: 'center', borderRadius: R.pill, backgroundColor: C.tint, paddingHorizontal: 10, paddingVertical: 7, marginRight: 7, marginBottom: 5 },
+  factText: { fontSize: 11, color: C.secondary, fontWeight: '700', marginLeft: 5 },
+  expandedArea: { paddingHorizontal: SP.xs, paddingTop: SP.md },
+  sectionDivider: { height: 1, backgroundColor: C.borderSubtle, marginBottom: SP.lg },
+  sectionHeading: { fontSize: 14, fontWeight: '800', color: C.text, marginBottom: SP.md },
+  infoGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  infoItem: { width: '50%', flexDirection: 'row', alignItems: 'center', paddingRight: SP.sm, marginBottom: SP.md },
+  infoIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: C.tint, alignItems: 'center', justifyContent: 'center' },
+  infoCopy: { flex: 1, marginLeft: SP.sm },
+  infoLabel: { fontSize: 10, color: C.textMuted },
+  infoValue: { fontSize: 12, color: C.text, fontWeight: '700', marginTop: 2 },
+  expiryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.background, borderRadius: R.md, padding: SP.md, marginBottom: SP.sm },
+  expiryCopy: { flex: 1 },
+  expiryLabel: { fontSize: 11, color: C.textMuted },
+  expiryValue: { fontSize: 13, color: C.text, fontWeight: '700', marginTop: 3 },
+  recordText: { fontSize: 10, color: C.textMuted, marginTop: SP.sm },
+  stateCard: { alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface, borderRadius: R.lg, padding: SP.xxl, marginTop: SP.md, ...SHADOW },
+  stateIcon: { width: 58, height: 58, borderRadius: 20, backgroundColor: C.tint, alignItems: 'center', justifyContent: 'center', marginBottom: SP.md },
+  stateTitle: { fontSize: 17, fontWeight: '800', color: C.text, textAlign: 'center' },
+  stateText: { fontSize: 13, lineHeight: 20, color: C.textMuted, textAlign: 'center', marginTop: SP.sm },
+  retryButton: { minHeight: 44, paddingHorizontal: SP.xl, borderRadius: R.md, backgroundColor: C.tint, alignItems: 'center', justifyContent: 'center', marginTop: SP.lg },
+  retryText: { color: C.primary, fontSize: 14, fontWeight: '800' },
+  addVehicleButton: { minHeight: 54, borderRadius: R.md, backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',   marginBottom: 85, ...SHADOW },
+  addVehicleText: { color: C.white, fontSize: 15, fontWeight: '800', marginLeft: SP.sm },
 });

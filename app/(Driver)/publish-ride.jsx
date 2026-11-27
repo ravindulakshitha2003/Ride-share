@@ -1,11 +1,20 @@
-// PAGE 1: PublishRideScreen (file: publish-ride.jsx)
-// OSRM route picker (map, alternatives, selection)
-// -> selected route geometry + distance + duration saved in RouteContext
-// -> Rideinfoscreen (page 2) sends everything to the backend.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+/**
+ * publish-ride.jsx
+ * ---------------------------------------------------------------------------
+ * Step 1 of publishing a ride: choose pickup, destination and a route.
+ * The chosen route is saved in RouteContext and the next page (Rideinfoscreen)
+ * sends everything to the backend.
+ *
+ * Look and feel: same as the Add Vehicle page (gradient background, white
+ * cards, rounded buttons, icons).
+ * Colours:      every colour comes from ../../theme/colors
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -14,9 +23,12 @@ import {
   View,
 } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
+import { colors } from "../../theme/colors";
 import { useRoute } from "../../context/RouteContext";
 import { setMapPickerSelectionHandler } from "../../context/mapNavigation";
 import PlaceInput from "../../components/map/PlaceInput";
@@ -25,16 +37,29 @@ const OSRM_BASE = "https://router.project-osrm.org/route/v1/driving";
 const TIMEOUT_MS = 30000;
 const PRICE_PER_KM = 10;
 
-// Palette
-const INK = "#12263A";
-const MUTED = "#6B7B8C";
-const BG = "#F3F6F9";
-const LINE = "#E3E9EF";
-const BLUE = "#5B4BDB";
-const GREEN = "#1F9D63";
-const RED = "#D64545";
-const ALT = "#9AA7B4";
-const MBLUE = "#1F6FEB";
+// ─────────────── Style tokens (same as Add Vehicle) ───────────────
+
+const R = { sm: 12, md: 16, lg: 24, xl: 28, pill: 999 };
+const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 };
+const SHADOW = Platform.select({
+  ios: {
+    shadowColor: colors.primary,
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  android: { elevation: 6, shadowColor: colors.primary },
+  default: {},
+});
+const MAX_W = 560;
+
+// How far (px) the Continue button sits above the system navigation bar.
+// Increase this number to lift the button higher.
+const BOTTOM_LIFT = 70;
+const useBottomSpace = () => {
+  const insets = useSafeAreaInsets();
+  return Math.max(insets.bottom, SP.lg) + BOTTOM_LIFT;
+};
 
 // ─────────────── Helpers ───────────────
 
@@ -53,6 +78,7 @@ function formatDuration(min) {
 export default function PublishRideScreen() {
   const router = useRouter();
   const mapRef = useRef(null);
+  const bottomSpace = useBottomSpace();
   const { saveRoute, clearRoute } = useRoute();
 
   // ---------- locations ----------
@@ -74,6 +100,8 @@ export default function PublishRideScreen() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
+  // The map starts locked so the page scrolls smoothly. Unlock it to zoom or drag the map.
+  const [mapUnlocked, setMapUnlocked] = useState(false);
 
   const requestUrl = useMemo(() => {
     if (!originCoordinates || !destinationCoordinates) return null;
@@ -84,7 +112,7 @@ export default function PublishRideScreen() {
     );
   }, [originCoordinates, destinationCoordinates]);
 
-  // Fetch routes whenever the locations change
+  // Find routes whenever the places change
   useEffect(() => {
     setRoutes([]);
     setSelectedIndex(0);
@@ -101,7 +129,7 @@ export default function PublishRideScreen() {
       originCoordinates.longitude === destinationCoordinates.longitude
     ) {
       setStatus("error");
-      setErrorText("Choose two different locations.");
+      setErrorText("Pickup and destination are the same. Please choose two different places.");
       return;
     }
 
@@ -116,7 +144,7 @@ export default function PublishRideScreen() {
     (async () => {
       try {
         const res = await fetch(requestUrl, { signal: controller.signal });
-        if (!res.ok) throw new Error(`OSRM HTTP error ${res.status}`);
+        if (!res.ok) throw new Error(`Route service error ${res.status}`);
         const data = await res.json();
 
         if (data.code !== "Ok" || !data.routes?.length) {
@@ -131,9 +159,8 @@ export default function PublishRideScreen() {
             distanceKm: Number(km.toFixed(1)),
             durationMinutes: Math.round(r.duration / 60),
             suggestedPrice: Math.round((km * PRICE_PER_KM) / 50) * 50,
-            pointCount: r.geometry.coordinates.length,
             points: toMapPoints(r.geometry.coordinates),
-            // Raw OSRM values. These are sent to the backend as-is.
+            // Raw route values. These are sent to the backend as they are.
             geometry: r.geometry, // GeoJSON LineString [[lng, lat], ...]
             distanceMeters: r.distance,
             durationSeconds: r.duration,
@@ -144,11 +171,14 @@ export default function PublishRideScreen() {
         setSelectedIndex(0);
         setStatus("ready");
       } catch (e) {
-        // Aborted because the locations changed: a newer request is running
+        // Cancelled because the places changed: a newer search is already running
         if (e.name === "AbortError" && !timedOut) return;
-        const msg = timedOut ? "Request timed out. Try again." : e.message;
-        console.log("[OSRM] Failed:", msg);
-        setErrorText(msg);
+        console.log("[Route search] Failed:", e.message); // technical detail stays in the log only
+        setErrorText(
+          timedOut
+            ? "This is taking too long. Please check your internet and try again."
+            : "We could not find a route between these places. Please try again."
+        );
         setStatus("error");
       } finally {
         clearTimeout(timer);
@@ -161,18 +191,24 @@ export default function PublishRideScreen() {
     };
   }, [requestUrl, reloadKey, clearRoute]);
 
-  // Fit the map to all routes
+  // Put the map back on the route (or on both places if no route yet)
+  const resetMap = useCallback(() => {
+    const spots = routes.length
+      ? routes.flatMap((r) => r.points)
+      : [originCoordinates, destinationCoordinates].filter(Boolean);
+    if (!spots.length) return;
+    mapRef.current?.fitToCoordinates(spots, {
+      edgePadding: { top: 50, right: 40, bottom: 50, left: 40 },
+      animated: true,
+    });
+  }, [routes, originCoordinates, destinationCoordinates]);
+
+  // Zoom the map so every route is visible as soon as routes are found
   useEffect(() => {
     if (status !== "ready" || !routes.length) return;
-    const all = routes.flatMap((r) => r.points);
-    const t = setTimeout(() => {
-      mapRef.current?.fitToCoordinates(all, {
-        edgePadding: { top: 50, right: 40, bottom: 50, left: 40 },
-        animated: true,
-      });
-    }, 300);
+    const t = setTimeout(resetMap, 300);
     return () => clearTimeout(t);
-  }, [status, routes]);
+  }, [status, routes, resetMap]);
 
   // ---------- handlers ----------
   function openMapPicker(type) {
@@ -210,19 +246,19 @@ export default function PublishRideScreen() {
     if (saving) return;
 
     if (!origin.trim() || !destination.trim()) {
-      return Alert.alert("Missing location", "Choose both pickup and destination.");
+      return Alert.alert("Missing place", "Please choose both pickup and destination.");
     }
     if (!originCoordinates || !destinationCoordinates) {
-      return Alert.alert("Choose locations on the map", "Please select both locations.");
+      return Alert.alert("Choose places from the list", "Please pick both places from the suggestions or on the map.");
     }
     if (status !== "ready" || !selected) {
-      return Alert.alert("Route not ready", "Please wait until the route is calculated.");
+      return Alert.alert("Route not ready", "Please wait until the route is found.");
     }
 
     try {
       setSaving(true);
 
-      // Save the selected route (all points) in context for page 2.
+      // Save the chosen route so the next page can use it.
       saveRoute({
         origin: {
           placeName: origin.trim(),
@@ -248,7 +284,7 @@ export default function PublishRideScreen() {
       });
     } catch (e) {
       console.error("Save route error:", e);
-      Alert.alert("Could not save route", e.message || "Please try again.");
+      Alert.alert("Could not save the route", "Something went wrong. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -263,338 +299,425 @@ export default function PublishRideScreen() {
   const bothPicked = !!originCoordinates && !!destinationCoordinates;
   const canContinue = status === "ready" && !saving;
 
-  const steps = [
-    { label: "Both places selected", done: bothPicked, active: false },
-    { label: "Getting routes from OSRM", done: status === "ready", active: status === "loading" },
-    {
-      label:
-        status === "ready"
-          ? routes.length > 1
-            ? `Recommended route + ${routes.length - 1} alternative`
-            : "Recommended route (no alternative available)"
-          : "Looking for alternatives",
-      done: status === "ready",
-      active: false,
-    },
-    {
-      label: status === "ready" ? `${selected?.pointCount} route points ready` : "Reading route points",
-      done: status === "ready",
-      active: false,
-    },
-  ];
-
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={BG} />
+    <LinearGradient colors={[colors.background, colors.gradientEnd]} style={styles.flex}>
+      <View pointerEvents="none" style={styles.glowA} />
+      <View pointerEvents="none" style={styles.glowB} />
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* header */}
-        <View style={styles.headerRow}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backText}>‹</Text>
-          </TouchableOpacity>
-          <View>
-            <Text style={styles.title}>Choose your route</Text>
-            <Text style={styles.subtitle}>Search places or pick them on the map</Text>
-          </View>
-        </View>
+      <SafeAreaView edges={["top", "left", "right"]} style={styles.flex}>
+        <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
 
-        {/* inputs */}
-        <View style={styles.inputsCard}>
-          <PlaceInput
-            label="Pickup"
-            color={GREEN}
-            value={origin}
-            hasCoords={!!originCoordinates}
-            onChangeText={(t) => {
-              setOrigin(t);
-              setOriginCoordinates(null);
-            }}
-            onSelect={(p) => {
-              setOrigin(p.name);
-              setOriginCoordinates({ latitude: p.latitude, longitude: p.longitude });
-            }}
-            onPickMap={() => openMapPicker("origin")}
-          />
-
-          <TouchableOpacity style={styles.swapBtn} onPress={swapLocations} accessibilityLabel="Swap places">
-            <Text style={styles.swapText}>⇅</Text>
-          </TouchableOpacity>
-
-          <PlaceInput
-            label="Destination"
-            color={RED}
-            value={destination}
-            hasCoords={!!destinationCoordinates}
-            onChangeText={(t) => {
-              setDestination(t);
-              setDestinationCoordinates(null);
-            }}
-            onSelect={(p) => {
-              setDestination(p.name);
-              setDestinationCoordinates({ latitude: p.latitude, longitude: p.longitude });
-            }}
-            onPickMap={() => openMapPicker("destination")}
-          />
-        </View>
-
-        {!bothPicked && (
-          <Text style={styles.warn}>
-            Choose a suggestion (or use the pin button) for both places to see routes.
-          </Text>
-        )}
-
-        {/* map */}
-        <View style={styles.mapWrap}>
-          <MapView
-            ref={mapRef}
-            style={StyleSheet.absoluteFill}
-            initialRegion={{ latitude: 7.5, longitude: 80.7, latitudeDelta: 3, longitudeDelta: 3 }}
+        <View style={styles.shell}>
+          <ScrollView
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
-            {originCoordinates && (
-              <Marker coordinate={originCoordinates} title={origin} pinColor="green" />
+            {/* header */}
+            <View style={styles.topBar}>
+              <Pressable
+                onPress={() => router.back()}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                style={styles.backBtn}
+              >
+                <Icon name="arrow-left" size={24} color={colors.text} />
+              </Pressable>
+            </View>
+            <View style={styles.header}>
+              <Text accessibilityRole="header" style={styles.h1}>
+                Choose your route
+              </Text>
+              <Text style={styles.sub}>Search for places or pick them on the map.</Text>
+            </View>
+
+            {/* pickup + destination */}
+            <View style={[styles.card, styles.inputsCard]}>
+              <PlaceInput
+                label="Pickup"
+                color={colors.success}
+                value={origin}
+                hasCoords={!!originCoordinates}
+                onChangeText={(t) => {
+                  setOrigin(t);
+                  setOriginCoordinates(null);
+                }}
+                onSelect={(p) => {
+                  setOrigin(p.name);
+                  setOriginCoordinates({ latitude: p.latitude, longitude: p.longitude });
+                }}
+                onPickMap={() => openMapPicker("origin")}
+              />
+
+              <Pressable
+                style={styles.swapBtn}
+                onPress={swapLocations}
+                accessibilityRole="button"
+                accessibilityLabel="Swap pickup and destination"
+              >
+                <Icon name="swap-vertical" size={22} color={colors.primary} />
+              </Pressable>
+
+              <PlaceInput
+                label="Destination"
+                color={colors.error}
+                value={destination}
+                hasCoords={!!destinationCoordinates}
+                onChangeText={(t) => {
+                  setDestination(t);
+                  setDestinationCoordinates(null);
+                }}
+                onSelect={(p) => {
+                  setDestination(p.name);
+                  setDestinationCoordinates({ latitude: p.latitude, longitude: p.longitude });
+                }}
+                onPickMap={() => openMapPicker("destination")}
+              />
+            </View>
+
+            {!bothPicked && (
+              <View style={styles.needed} accessibilityLiveRegion="polite">
+                <Icon name="information-outline" size={16} color={colors.textMuted} />
+                <Text style={styles.neededText}>
+                  Pick a place from the list, or use the pin button, for both places to see routes.
+                </Text>
+              </View>
             )}
-            {destinationCoordinates && (
-              <Marker coordinate={destinationCoordinates} title={destination} pinColor="red" />
+
+            {/* map */}
+            <View style={styles.mapWrap}>
+              <MapView
+                ref={mapRef}
+                style={StyleSheet.absoluteFill}
+                initialRegion={{ latitude: 7.5, longitude: 80.7, latitudeDelta: 3, longitudeDelta: 3 }}
+                scrollEnabled={mapUnlocked}
+                zoomEnabled={mapUnlocked}
+                rotateEnabled={mapUnlocked}
+                pitchEnabled={mapUnlocked}
+                toolbarEnabled={false}
+              >
+                {originCoordinates && (
+                  <Marker coordinate={originCoordinates} title={origin} pinColor={colors.success} />
+                )}
+                {destinationCoordinates && (
+                  <Marker coordinate={destinationCoordinates} title={destination} pinColor={colors.error} />
+                )}
+                {drawOrder.map((r) => {
+                  const isSelected = r.index === selectedIndex;
+                  return (
+                    <Polyline
+                      key={`${r.index}-${isSelected}`}
+                      coordinates={r.points}
+                      strokeColor={isSelected ? colors.primary : colors.disabledText}
+                      strokeWidth={isSelected ? 6 : 4}
+                      tappable
+                      onPress={() => setSelectedIndex(r.index)}
+                      zIndex={isSelected ? 2 : 1}
+                    />
+                  );
+                })}
+              </MapView>
+
+              {/* map buttons */}
+              <View style={styles.mapButtons}>
+                <Pressable
+                  onPress={() => setMapUnlocked((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={mapUnlocked ? "Lock map" : "Move map"}
+                  style={[styles.mapBtn, mapUnlocked && styles.mapBtnOn]}
+                >
+                  <Icon
+                    name={mapUnlocked ? "lock-outline" : "cursor-move"}
+                    size={18}
+                    color={mapUnlocked ? colors.white : colors.primary}
+                  />
+                  <Text style={[styles.mapBtnText, mapUnlocked && { color: colors.white }]}>
+                    {mapUnlocked ? "Lock map" : "Move map"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={resetMap}
+                  accessibilityRole="button"
+                  accessibilityLabel="Reset map to the route"
+                  style={[styles.mapBtn, { marginTop: SP.sm }]}
+                >
+                  <Icon name="crosshairs-gps" size={18} color={colors.primary} />
+                  <Text style={styles.mapBtnText}>Reset map</Text>
+                </Pressable>
+              </View>
+
+              {status === "loading" && (
+                <View style={styles.overlay}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={styles.overlayText}>Finding the best routes...</Text>
+                </View>
+              )}
+              {status === "error" && (
+                <View style={styles.overlay}>
+                  <Icon name="alert-circle-outline" size={28} color={colors.error} />
+                  <Text style={styles.errorText}>{errorText}</Text>
+                  <TouchableOpacity
+                    style={styles.retryBtn}
+                    onPress={() => setReloadKey((k) => k + 1)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.retryText}>Try again</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            <Text style={styles.mapHint}>
+              {mapUnlocked
+                ? "You can now drag and zoom the map. Tap Lock map to scroll the page again."
+                : "The map is locked so the page scrolls easily. Tap Move map to drag or zoom it."}
+            </Text>
+
+            {/* summary of the chosen route */}
+            {status === "ready" && selected && (
+              <View style={styles.summary}>
+                <View style={styles.stat}>
+                  <Text style={styles.statValue}>{selected.distanceKm} km</Text>
+                  <Text style={styles.statLabel}>Distance</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.stat}>
+                  <Text style={styles.statValue}>{formatDuration(selected.durationMinutes)}</Text>
+                  <Text style={styles.statLabel}>Drive time</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.stat}>
+                  <Text style={[styles.statValue, { color: colors.successSoft }]}>
+                    Rs. {selected.suggestedPrice}
+                  </Text>
+                  <Text style={styles.statLabel}>Suggested price</Text>
+                </View>
+              </View>
             )}
-            {drawOrder.map((r) => {
+
+            {/* route choices */}
+            {routes.map((r) => {
               const isSelected = r.index === selectedIndex;
               return (
-                <Polyline
-                  key={`${r.index}-${isSelected}`}
-                  coordinates={r.points}
-                  strokeColor={isSelected ? MBLUE : ALT}
-                  strokeWidth={isSelected ? 6 : 4}
-                  tappable
+                <Pressable
+                  key={r.index}
+                  style={[styles.routeCard, isSelected && styles.routeCardOn]}
                   onPress={() => setSelectedIndex(r.index)}
-                  zIndex={isSelected ? 2 : 1}
-                />
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={r.isAlternative ? `Alternative route ${r.index}` : "Recommended route"}
+                >
+                  <View
+                    style={[
+                      styles.swatch,
+                      { backgroundColor: isSelected ? colors.primary : colors.disabledText },
+                    ]}
+                  />
+                  <View style={styles.flex}>
+                    <Text style={styles.routeTitle}>
+                      {r.isAlternative ? `Alternative route ${r.index}` : "Recommended route"}
+                    </Text>
+                    <Text style={styles.routeSub}>
+                      {r.distanceKm} km  •  {formatDuration(r.durationMinutes)}
+                    </Text>
+                  </View>
+                  <View style={[styles.radio, isSelected && styles.radioOn]}>
+                    {isSelected && <Icon name="check" size={16} color={colors.white} />}
+                  </View>
+                </Pressable>
               );
             })}
-          </MapView>
+          </ScrollView>
 
-          {status === "loading" && (
-            <View style={styles.overlay}>
-              <ActivityIndicator size="large" color={BLUE} />
-              <Text style={styles.overlayText}>Finding the best routes...</Text>
-            </View>
-          )}
-          {status === "error" && (
-            <View style={styles.overlay}>
-              <Text style={styles.errorText}>{errorText}</Text>
-              <TouchableOpacity style={styles.retryBtn} onPress={() => setReloadKey((k) => k + 1)}>
-                <Text style={styles.retryText}>Try again</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
-        {/* selected route summary */}
-        {status === "ready" && selected && (
-          <View style={styles.summary}>
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>{selected.distanceKm} km</Text>
-              <Text style={styles.statLabel}>Distance</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>{formatDuration(selected.durationMinutes)}</Text>
-              <Text style={styles.statLabel}>Drive time</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.stat}>
-              <Text style={[styles.statValue, { color: GREEN }]}>Rs. {selected.suggestedPrice}</Text>
-              <Text style={styles.statLabel}>Suggested price</Text>
-            </View>
-          </View>
-        )}
-
-        {/* route cards */}
-        {routes.map((r) => {
-          const isSelected = r.index === selectedIndex;
-          return (
-            <TouchableOpacity
-              key={r.index}
-              style={[styles.card, isSelected && styles.cardSelected]}
-              onPress={() => setSelectedIndex(r.index)}
-              activeOpacity={0.85}
+          {/* Continue button, lifted above the system navigation bar */}
+          <View style={[styles.bottomBar, { paddingBottom: bottomSpace }]}>
+            <Pressable
+              onPress={handleContinue}
+              disabled={!canContinue}
+              accessibilityRole="button"
+              accessibilityLabel="Continue"
+              accessibilityState={{ disabled: !canContinue }}
+              style={[styles.btn, !canContinue && { opacity: 0.45 }]}
             >
-              <View style={[styles.swatch, { backgroundColor: isSelected ? BLUE : ALT }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>
-                  {r.isAlternative ? `Alternative route ${r.index}` : "Recommended route"}
-                </Text>
-                <Text style={styles.cardSub}>
-                  {r.distanceKm} km · {formatDuration(r.durationMinutes)} · {r.pointCount} points
-                </Text>
-              </View>
-              <View style={[styles.radio, isSelected && styles.radioOn]}>
-                {isSelected && <Text style={styles.radioTick}>✓</Text>}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-
-        {/* progress */}
-        {bothPicked && (
-          <View style={styles.stepsCard}>
-            {steps.map((s, i) => (
-              <View key={i} style={styles.stepRow}>
-                <View style={styles.stepIcon}>
-                  {s.active ? (
-                    <ActivityIndicator size="small" color={BLUE} />
-                  ) : (
-                    <Text
-                      style={[
-                        styles.stepMark,
-                        s.done && { color: GREEN },
-                        status === "error" && !s.done && { color: RED },
-                      ]}
-                    >
-                      {s.done ? "✓" : status === "error" ? "✕" : "○"}
-                    </Text>
-                  )}
+              {saving ? (
+                <ActivityIndicator color={colors.white} />
+              ) : (
+                <View style={styles.row}>
+                  <Text style={styles.btnText}>Continue</Text>
+                  <Icon name="arrow-right" size={20} color={colors.white} style={{ marginLeft: SP.sm }} />
                 </View>
-                <Text style={[styles.stepLabel, !s.done && !s.active && { opacity: 0.5 }]}>
-                  {s.label}
-                </Text>
-              </View>
-            ))}
+              )}
+            </Pressable>
           </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.saveBtn, !canContinue && { opacity: 0.4 }]}
-          onPress={handleContinue}
-          disabled={!canContinue}
-          accessibilityRole="button"
-        >
-          <Text style={styles.saveText}>{saving ? "Saving..." : "Continue"}</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+        </View>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: BG },
-  content: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 80 },
+// ─────────────── Styles ───────────────
 
-  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  row: { flexDirection: "row", alignItems: "center" },
+  shell: { flex: 1, width: "100%", maxWidth: MAX_W, alignSelf: "center", paddingHorizontal: 20 },
+  content: { paddingTop: SP.xs, paddingBottom: SP.xxxl },
+
+  // soft background circles (same as Add Vehicle)
+  glowA: {
+    position: "absolute",
+    top: -80,
+    right: -70,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: colors.accent,
+    opacity: 0.28,
+  },
+  glowB: {
+    position: "absolute",
+    bottom: 120,
+    left: -100,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: colors.primary,
+    opacity: 0.1,
+  },
+
+  // header
+  topBar: { flexDirection: "row", alignItems: "center", height: 56 },
   backBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: LINE,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 14,
+    ...SHADOW,
   },
-  backText: { fontSize: 26, color: INK, marginTop: -3 },
-  title: { fontSize: 24, fontWeight: "800", color: INK },
-  subtitle: { fontSize: 13, color: MUTED, marginTop: 2 },
+  header: { marginTop: SP.lg, marginBottom: SP.xxl },
+  h1: { fontSize: 28, lineHeight: 34, fontWeight: "800", color: colors.text, letterSpacing: -0.4 },
+  sub: { fontSize: 15, lineHeight: 22, color: colors.textMuted, marginTop: SP.sm },
 
-  inputsCard: { zIndex: 5 },
+  // cards
+  card: { backgroundColor: colors.surface, borderRadius: R.lg, padding: SP.xl, ...SHADOW },
+  inputsCard: { zIndex: 5 }, // keeps the suggestion list above the map
   swapBtn: {
     alignSelf: "flex-end",
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: INK,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.tint,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 14,
-    marginVertical: -8,
+    marginVertical: SP.xs,
     zIndex: 2,
-    borderWidth: 3,
-    borderColor: BG,
   },
-  swapText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  warn: { fontSize: 12, color: RED, fontWeight: "600", marginTop: 10 },
 
+  // helper text
+  needed: { flexDirection: "row", alignItems: "flex-start", marginTop: SP.lg, paddingHorizontal: SP.xs },
+  neededText: { flex: 1, marginLeft: SP.sm, fontSize: 13, color: colors.textMuted },
+
+  // map
   mapWrap: {
     height: 290,
-    borderRadius: 20,
+    borderRadius: R.lg,
     overflow: "hidden",
-    marginTop: 14,
-    backgroundColor: "#E6ECF1",
+    marginTop: SP.lg,
+    backgroundColor: colors.tint,
     borderWidth: 1,
-    borderColor: LINE,
+    borderColor: colors.borderSubtle,
   },
+  mapButtons: { position: "absolute", top: SP.md, right: SP.md, alignItems: "flex-end" },
+  mapBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 40,
+    paddingHorizontal: SP.md,
+    borderRadius: R.pill,
+    backgroundColor: colors.surface,
+    ...SHADOW,
+  },
+  mapBtnOn: { backgroundColor: colors.primary },
+  mapBtnText: { marginLeft: 6, fontSize: 13, fontWeight: "700", color: colors.primary },
+  mapHint: { fontSize: 12, lineHeight: 18, color: colors.textMuted, marginTop: SP.sm, paddingHorizontal: SP.xs },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(243,246,249,0.9)",
+    backgroundColor: `${colors.background}E6`,
     alignItems: "center",
     justifyContent: "center",
-    padding: 20,
+    padding: SP.xl,
   },
-  overlayText: { marginTop: 10, fontSize: 13, fontWeight: "600", color: INK },
-  errorText: { fontSize: 14, color: RED, fontWeight: "700", textAlign: "center" },
+  overlayText: { marginTop: SP.md, fontSize: 14, fontWeight: "600", color: colors.text },
+  errorText: {
+    marginTop: SP.sm,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.error,
+    fontWeight: "700",
+    textAlign: "center",
+  },
   retryBtn: {
-    marginTop: 12,
-    backgroundColor: INK,
-    paddingHorizontal: 22,
-    paddingVertical: 10,
-    borderRadius: 12,
+    marginTop: SP.md,
+    backgroundColor: colors.text,
+    paddingHorizontal: SP.xxl,
+    minHeight: 44,
+    justifyContent: "center",
+    borderRadius: R.md,
   },
-  retryText: { color: "#fff", fontWeight: "700" },
+  retryText: { color: colors.white, fontWeight: "700", fontSize: 15 },
 
+  // route summary
   summary: {
     flexDirection: "row",
-    backgroundColor: INK,
-    borderRadius: 18,
-    paddingVertical: 16,
-    marginTop: 14,
+    backgroundColor: colors.text,
+    borderRadius: R.lg,
+    paddingVertical: SP.lg,
+    marginTop: SP.lg,
+    ...SHADOW,
   },
   stat: { flex: 1, alignItems: "center" },
-  statValue: { fontSize: 17, fontWeight: "800", color: "#fff" },
-  statLabel: { fontSize: 11, color: "#9FB0C0", marginTop: 3 },
-  statDivider: { width: 1, backgroundColor: "#2C4259" },
+  statValue: { fontSize: 17, fontWeight: "800", color: colors.white },
+  statLabel: { fontSize: 12, color: colors.disabledText, marginTop: 3 },
+  statDivider: { width: 1, backgroundColor: `${colors.white}33` },
 
-  card: {
+  // route choices
+  routeCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 14,
-    marginTop: 10,
+    backgroundColor: colors.surface,
+    borderRadius: R.lg,
+    padding: SP.lg,
+    marginTop: SP.md,
     borderWidth: 2,
     borderColor: "transparent",
+    ...SHADOW,
   },
-  cardSelected: { borderColor: BLUE },
-  swatch: { width: 6, height: 38, borderRadius: 3, marginRight: 12 },
-  cardTitle: { fontSize: 15, fontWeight: "700", color: INK },
-  cardSub: { fontSize: 12, color: MUTED, marginTop: 3 },
+  routeCardOn: { backgroundColor: colors.tint, borderColor: colors.primary },
+  swatch: { width: 6, height: 38, borderRadius: 3, marginRight: SP.md },
+  routeTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  routeSub: { fontSize: 13, color: colors.textMuted, marginTop: 3 },
   radio: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 2,
-    borderColor: LINE,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  radioOn: { backgroundColor: BLUE, borderColor: BLUE },
-  radioTick: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  radioOn: { backgroundColor: colors.primary, borderColor: colors.primary },
 
-  stepsCard: { backgroundColor: "#fff", borderRadius: 16, padding: 14, marginTop: 14 },
-  stepRow: { flexDirection: "row", alignItems: "center", paddingVertical: 4 },
-  stepIcon: { width: 26, alignItems: "center" },
-  stepMark: { fontSize: 15, fontWeight: "700", color: "#9AA7B4" },
-  stepLabel: { fontSize: 13, fontWeight: "600", marginLeft: 6, color: INK },
-
-  saveBtn: {
-    backgroundColor: BLUE,
-    borderRadius: 16,
-    paddingVertical: 16,
+  // bottom button (same as Add Vehicle "Next" button)
+  bottomBar: { paddingTop: SP.md },
+  btn: {
+    height: 54,
+    borderRadius: R.md,
+    backgroundColor: colors.primary,
     alignItems: "center",
-    marginTop: 18,
+    justifyContent: "center",
+    minWidth: 44,
   },
-  saveText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  btnText: { color: colors.white, fontSize: 16, fontWeight: "700" },
 });
