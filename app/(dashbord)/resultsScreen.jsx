@@ -21,7 +21,6 @@ import PlaceInput from '../../components/map/PlaceInput';
 import { setMapPickerSelectionHandler } from '../../context/mapNavigation';
 import { searchAvailableRides } from '../../api/rideService';
 import { colors as C } from '../../theme/colors';
-import CardSkeleton from '../../components/common/CardSkeleton';
 import { useToast } from '../../context/ToastContext';
 
 const R = { sm: 12, md: 16, lg: 24, xl: 28, pill: 999 };
@@ -324,6 +323,7 @@ function mapBackendRide(row, date) {
     currency: row.currency || 'LKR',
     seatsFree: Number(row.available_seats ?? row.availableSeats ?? NaN),
     driverId,
+    driverName: String(row.driver_name ?? row.driverName ?? row.driver?.name ?? '').trim(),
     vehicleId,
     requestCount: Number(row.no_of_requests ?? row.noOfRequests ?? 0),
     bookingCount: Number(row.no_of_bookings ?? row.noOfBookings ?? 0),
@@ -367,43 +367,52 @@ function InfoPill({ icon, label, tone = 'violet' }) {
   );
 }
 
-const PREFERENCE_LABELS = {
-  food: 'Food',
-  pets: 'Pets',
-  music: 'Music',
-  gender: 'Passenger preference',
-  maxAge: 'Maximum age',
-  minAge: 'Minimum age',
-  luggage: 'Luggage',
-  smoking: 'Smoking',
+/* Ride rules shown as small icons (keeps the card short and easy to scan) */
+const PREF_ICONS = [
+  { key: 'food', label: 'Food', on: 'food-outline', off: 'food-off-outline' },
+  { key: 'pets', label: 'Pets', on: 'paw', off: 'paw-off' },
+  { key: 'music', label: 'Music', on: 'music-note', off: 'music-off' },
+  { key: 'smoking', label: 'Smoking', on: 'smoking', off: 'smoking-off' },
+  { key: 'luggage', label: 'Luggage', on: 'bag-suitcase-outline', off: 'bag-suitcase-outline' },
+];
+
+const PREF_TONES = {
+  allowed: { bg: C.successSoft, fg: C.success, text: 'allowed' },
+  ask_first: { bg: C.warningSoft, fg: C.amber, text: 'ask first' },
+  not_allowed: { bg: C.dangerSoft, fg: C.danger, text: 'not allowed' },
+  neutral: { bg: C.greySoft, fg: C.grey, text: '' },
 };
 
-function formatPreferenceValue(value) {
-  if (value === null || value === undefined || value === '') return 'No limit';
-  const labels = {
-    allowed: 'Allowed',
-    not_allowed: 'Not allowed',
-    ask_first: 'Ask first',
-    any: 'Any',
-    standard: 'Standard',
-    light: 'Light',
-    large: 'Large',
-    male: 'Male',
-    female: 'Female',
-  };
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  const normalized = String(value);
-  return labels[normalized] || normalized.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+function getPreferenceIcons(preferences) {
+  return PREF_ICONS.map((item) => {
+    const value = preferences?.[item.key];
+    if (value === null || value === undefined || value === '') return null;
+    if (item.key === 'luggage') {
+      return {
+        key: item.key,
+        icon: item.on,
+        tone: PREF_TONES.neutral,
+        label: `${item.label}: ${String(value).replace(/_/g, ' ')}`,
+      };
+    }
+    const tone = PREF_TONES[value];
+    if (!tone) return null;
+    return {
+      key: item.key,
+      icon: value === 'not_allowed' ? item.off : item.on,
+      tone,
+      label: `${item.label} ${tone.text}`,
+    };
+  }).filter(Boolean);
 }
 
 function RouteCard({ ride, onPress, isNavigating, navigationPending }) {
-  const [preferencesExpanded, setPreferencesExpanded] = useState(false);
   const seats = Number(ride.seatsFree);
   const pickupAway = formatDistance(ride.pickupDistanceMeters);
-  const preferences = ride.ridePreferences || {};
-  const preferenceEntries = Object.entries(PREFERENCE_LABELS)
-    .filter(([key]) => Object.prototype.hasOwnProperty.call(preferences, key))
-    .map(([key, label]) => ({ key, label, value: formatPreferenceValue(preferences[key]) }));
+  const rideDistance = formatDistance(ride.rideDistanceMeters);
+  const driverName = ride.driverName || '';
+  const driverInitial = driverName ? driverName.charAt(0).toUpperCase() : '?';
+  const prefIcons = getPreferenceIcons(ride.ridePreferences);
 
   const accessibilityLabel =
     `${ride.from} to ${ride.to}, departs ${ride.departureTime}, ` +
@@ -417,113 +426,245 @@ function RouteCard({ ride, onPress, isNavigating, navigationPending }) {
         label={accessibilityLabel}
         style={cardStyles.cardPressArea}
       >
-      <View style={cardStyles.topRow}>
-        <View style={cardStyles.routeHeading}>
-          <Text style={cardStyles.routeEyebrow}>AVAILABLE RIDE</Text>
-          <Text style={cardStyles.departureTime}>{ride.departureTime}</Text>
-        </View>
-        <View style={cardStyles.priceBox}>
-          <Text style={cardStyles.price}>{formatPrice(ride.pricePerSeat, ride.currency)}</Text>
-          <Text style={cardStyles.perSeat}>per seat</Text>
-        </View>
-      </View>
-
-      <View style={cardStyles.timeline}>
-        <View style={cardStyles.stop}>
-          <View style={cardStyles.dotCol}><View style={cardStyles.dotFrom} /></View>
-          <Text style={cardStyles.place} numberOfLines={2}>{ride.from}</Text>
-        </View>
-        <View style={cardStyles.stop}>
-          <View style={cardStyles.dotCol}><View style={cardStyles.line} /></View>
-          <View style={cardStyles.distanceTextWrap}>
-            <Text style={cardStyles.distanceText}>
-              {formatDistance(ride.rideDistanceMeters) || 'Route distance unavailable'}
-            </Text>
+        {/* Time + price */}
+        <View style={cardStyles.topRow}>
+          <View style={cardStyles.timeWrap}>
+            <View style={cardStyles.timeIcon}>
+              <Icon name="clock-outline" size={18} color={C.primary} />
+            </View>
+            <View>
+              <Text style={cardStyles.routeEyebrow}>DEPARTS</Text>
+              <Text style={cardStyles.departureTime}>{ride.departureTime}</Text>
+            </View>
+          </View>
+          <View style={cardStyles.priceBox}>
+            <Text style={cardStyles.price}>{formatPrice(ride.pricePerSeat, ride.currency)}</Text>
+            <Text style={cardStyles.perSeat}>per seat</Text>
           </View>
         </View>
-        <View style={cardStyles.stop}>
-          <View style={cardStyles.dotCol}>
-            <Icon name="map-marker" size={20} color={C.primary} />
+
+        {/* Origin -> destination */}
+        <View style={cardStyles.timeline}>
+          <View style={cardStyles.stop}>
+            <View style={cardStyles.dotCol}><View style={cardStyles.dotFrom} /></View>
+            <Text style={cardStyles.place} numberOfLines={1}>{ride.from}</Text>
           </View>
-          <Text style={cardStyles.place} numberOfLines={2}>{ride.to}</Text>
-        </View>
-      </View>
-
-      <View style={cardStyles.divider} />
-
-      <View style={cardStyles.pillRow}>
-        {ride.intermediateStops.length > 0 ? (
-          <InfoPill icon="map-marker-path" label={`${ride.intermediateStops.length} stop${ride.intermediateStops.length === 1 ? '' : 's'}`} />
-        ) : (
-          <InfoPill icon="ray-start-end" label="Direct route" tone="grey" />
-        )}
-        {ride.maxPassengerWaitingMinutes > 0 ? (
-          <InfoPill icon="timer-sand" label={`Wait up to ${ride.maxPassengerWaitingMinutes} min`} tone="grey" />
-        ) : null}
-        {Number.isFinite(seats) ? (
-          <InfoPill icon="seat-passenger" label={seats <= 0 ? 'Full' : `${seats} seat${seats === 1 ? '' : 's'} left`} tone={seats <= 2 ? 'amber' : 'violet'} />
-        ) : null}
-        {pickupAway ? <InfoPill icon="walk" label={`Pickup ${pickupAway} away`} tone="grey" /> : null}
-        {formatDistance(ride.dropoffDistanceMeters) ? (
-          <InfoPill icon="map-marker-check-outline" label={`Drop-off ${formatDistance(ride.dropoffDistanceMeters)} away`} tone="grey" />
-        ) : null}
-      </View>
-
-      <View style={cardStyles.activityRow}>
-        <View style={cardStyles.activityItem}>
-          <Icon name="account-clock-outline" size={17} color={C.primary} />
-          <Text style={cardStyles.activityText}>{ride.requestCount} requests</Text>
-        </View>
-        <View style={cardStyles.activityDivider} />
-        <View style={cardStyles.activityItem}>
-          <Icon name="ticket-confirmation-outline" size={17} color={C.success} />
-          <Text style={cardStyles.activityText}>{ride.bookingCount} bookings</Text>
-        </View>
-      </View>
-
-      {isNavigating ? (
-        <View style={cardStyles.openingRow}>
-          <ActivityIndicator size="small" color={C.primary} />
-          <Text style={cardStyles.openingText}>Opening ride details...</Text>
-        </View>
-      ) : null}
-
-      </PressScale>
-
-      <View style={cardStyles.preferenceSection}>
-        <Pressable
-          style={cardStyles.preferenceToggle}
-          onPress={() => setPreferencesExpanded((expanded) => !expanded)}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: preferencesExpanded }}
-          accessibilityLabel="Show ride preferences"
-        >
-          <View style={cardStyles.preferenceToggleLeft}>
-            <Icon name="tune-variant" size={17} color={C.primary} />
-            <Text style={cardStyles.preferenceTitle}>Ride preferences</Text>
-            <Text style={cardStyles.preferenceCount}>{preferenceEntries.length}</Text>
-          </View>
-          <Icon name={preferencesExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={C.primary} />
-        </Pressable>
-
-        {preferencesExpanded ? (
-          <View style={cardStyles.preferenceGrid}>
-            {preferenceEntries.length > 0 ? preferenceEntries.map((item) => (
-              <View key={item.key} style={cardStyles.preferenceItem}>
-                <Text style={cardStyles.preferenceLabel}>{item.label}</Text>
-                <Text style={cardStyles.preferenceValue}>{item.value}</Text>
+          <View style={cardStyles.stop}>
+            <View style={cardStyles.dotCol}><View style={cardStyles.line} /></View>
+            {rideDistance ? (
+              <View style={cardStyles.distanceTextWrap}>
+                <Text style={cardStyles.distanceText}>{rideDistance}</Text>
               </View>
-            )) : (
-              <Text style={cardStyles.noPreferences}>No ride preferences were provided.</Text>
-            )}
+            ) : null}
+          </View>
+          <View style={cardStyles.stop}>
+            <View style={cardStyles.dotCol}>
+              <Icon name="map-marker" size={20} color={C.primary} />
+            </View>
+            <Text style={cardStyles.place} numberOfLines={1}>{ride.to}</Text>
+          </View>
+        </View>
+
+        {/* Driver */}
+        <View style={cardStyles.driverRow}>
+          <View style={cardStyles.driverAvatar}>
+            <Text style={cardStyles.driverInitial}>{driverInitial}</Text>
+          </View>
+          <View style={cardStyles.driverInfo}>
+            <Text style={cardStyles.driverName} numberOfLines={1}>
+              {driverName || 'Driver'}
+            </Text>
+            <Text style={cardStyles.driverRole}>Driver</Text>
+          </View>
+          <Icon name="shield-check-outline" size={18} color={C.success} />
+        </View>
+
+        {/* Key info chips */}
+        <View style={cardStyles.pillRow}>
+          {Number.isFinite(seats) ? (
+            <InfoPill
+              icon="seat-passenger"
+              label={seats <= 0 ? 'Full' : `${seats} seat${seats === 1 ? '' : 's'} left`}
+              tone={seats <= 2 ? 'amber' : 'violet'}
+            />
+          ) : null}
+          {pickupAway ? <InfoPill icon="walk" label={`Pickup ${pickupAway}`} tone="grey" /> : null}
+          {ride.intermediateStops.length === 0 ? (
+            <InfoPill icon="ray-start-end" label="Direct" tone="grey" />
+          ) : (
+            <InfoPill icon="map-marker-path" label={`${ride.intermediateStops.length} stop${ride.intermediateStops.length === 1 ? '' : 's'}`} />
+          )}
+        </View>
+
+        {/* Ride rules as icons */}
+        {prefIcons.length > 0 ? (
+          <View style={cardStyles.prefRow}>
+            <Text style={cardStyles.prefLabel}>RULES</Text>
+            {prefIcons.map((p) => (
+              <View
+                key={p.key}
+                style={[cardStyles.prefIcon, { backgroundColor: p.tone.bg }]}
+                accessible
+                accessibilityLabel={p.label}
+              >
+                <Icon name={p.icon} size={16} color={p.tone.fg} />
+              </View>
+            ))}
           </View>
         ) : null}
-      </View>
+
+        {/* Requests / bookings */}
+        <View style={cardStyles.activityRow}>
+          <View style={cardStyles.activityItem}>
+            <Icon name="account-clock-outline" size={17} color={C.primary} />
+            <Text style={cardStyles.activityText}>{ride.requestCount} requests</Text>
+          </View>
+          <View style={cardStyles.activityDivider} />
+          <View style={cardStyles.activityItem}>
+            <Icon name="ticket-confirmation-outline" size={17} color={C.success} />
+            <Text style={cardStyles.activityText}>{ride.bookingCount} bookings</Text>
+          </View>
+          <Icon name="chevron-right" size={20} color={C.primary} />
+        </View>
+
+        {isNavigating ? (
+          <View style={cardStyles.openingRow}>
+            <ActivityIndicator size="small" color={C.primary} />
+            <Text style={cardStyles.openingText}>Opening ride details...</Text>
+          </View>
+        ) : null}
+      </PressScale>
     </View>
   );
 }
 
 const MemoRouteCard = memo(RouteCard);
+
+/* =======================================================
+   LOADING SKELETON (compact card shape, violet shimmer sweep)
+======================================================= */
+const SKEL_BASE = '#E3E7FF';
+const SKEL_STRONG = '#C7CEFF';
+
+function SkelBox({ width, height, radius = 8, style }) {
+  return (
+    <View
+      style={[
+        { width, height, borderRadius: radius, backgroundColor: SKEL_BASE },
+        style,
+      ]}
+    />
+  );
+}
+
+function RideCardSkeleton() {
+  const sweep = useRef(new Animated.Value(0)).current;
+  const [cardWidth, setCardWidth] = useState(0);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(sweep, {
+        toValue: 1,
+        duration: 1300,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [sweep]);
+
+  const bandWidth = Math.max(cardWidth * 0.6, 120);
+  const translateX = sweep.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-bandWidth, cardWidth + bandWidth],
+  });
+
+  return (
+    <View
+      style={skelStyles.card}
+      onLayout={(e) => setCardWidth(e.nativeEvent.layout.width)}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <View style={skelStyles.row}>
+        <SkelBox width={38} height={38} radius={12} style={{ backgroundColor: SKEL_STRONG }} />
+        <View style={{ marginLeft: SP.md, flex: 1 }}>
+          <SkelBox width={50} height={9} radius={4} />
+          <SkelBox width={96} height={18} radius={6} style={{ marginTop: 6 }} />
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <SkelBox width={92} height={20} radius={7} style={{ backgroundColor: SKEL_STRONG }} />
+          <SkelBox width={44} height={10} radius={4} style={{ marginTop: 6 }} />
+        </View>
+      </View>
+
+      <View style={{ marginTop: SP.xl }}>
+        <View style={skelStyles.row}>
+          <SkelBox width={14} height={14} radius={7} style={{ backgroundColor: SKEL_STRONG }} />
+          <SkelBox width="55%" height={15} radius={6} style={{ marginLeft: SP.md }} />
+        </View>
+        <View style={skelStyles.skelLine} />
+        <View style={skelStyles.row}>
+          <SkelBox width={14} height={14} radius={7} style={{ backgroundColor: SKEL_STRONG }} />
+          <SkelBox width="68%" height={15} radius={6} style={{ marginLeft: SP.md }} />
+        </View>
+      </View>
+
+      <View style={[skelStyles.row, { marginTop: SP.lg }]}>
+        <SkelBox width={34} height={34} radius={17} style={{ backgroundColor: SKEL_STRONG }} />
+        <View style={{ marginLeft: SP.md, flex: 1 }}>
+          <SkelBox width="35%" height={13} radius={5} />
+          <SkelBox width={40} height={9} radius={4} style={{ marginTop: 5 }} />
+        </View>
+      </View>
+
+      <View style={[skelStyles.row, { marginTop: SP.lg }]}>
+        <SkelBox width={90} height={30} radius={15} style={{ marginRight: SP.sm }} />
+        <SkelBox width={84} height={30} radius={15} style={{ marginRight: SP.sm }} />
+        <SkelBox width={64} height={30} radius={15} />
+      </View>
+
+      <View style={[skelStyles.row, { marginTop: SP.md }]}>
+        {[0, 1, 2, 3].map((i) => (
+          <SkelBox key={i} width={30} height={30} radius={15} style={{ marginRight: SP.sm }} />
+        ))}
+      </View>
+
+      <SkelBox width="100%" height={44} radius={R.md} style={{ marginTop: SP.md }} />
+
+      {/* Shimmer sweep */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          skelStyles.sweep,
+          { width: bandWidth, transform: [{ translateX }, { skewX: '-18deg' }] },
+        ]}
+      >
+        <LinearGradient
+          colors={['rgba(124,58,237,0)', 'rgba(124,58,237,0.28)', 'rgba(124,58,237,0)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+    </View>
+  );
+}
+
+function ResultsLoading() {
+  return (
+    <View style={{ width: '100%', paddingTop: SP.sm }}>
+      <View style={skelStyles.banner}>
+        <ActivityIndicator size="small" color={C.primary} />
+        <Text style={skelStyles.bannerText}>Finding the best rides for you...</Text>
+      </View>
+      <RideCardSkeleton />
+      <RideCardSkeleton />
+      <RideCardSkeleton />
+    </View>
+  );
+}
 
 /* =======================================================
    FILTER CONFIG & PANEL
@@ -1259,11 +1400,7 @@ export default function ResultsScreen({ route }) {
   const filteredOut = rides.length > 0 && visibleRides.length === 0;
 
   const emptyComponent = loading ? (
-    <View style={{ width: '100%', paddingTop: 8 }}>
-      <CardSkeleton />
-      <CardSkeleton />
-      <CardSkeleton />
-    </View>
+    <ResultsLoading />
   ) : apiError ? (
     <View style={styles.empty}>
       <View
@@ -1531,7 +1668,7 @@ const cardStyles = StyleSheet.create({
   card: {
     backgroundColor: C.white,
     borderRadius: R.lg,
-    padding: SP.xl,
+    padding: SP.lg,
     marginBottom: SP.lg,
     ...SHADOW,
   },
@@ -1541,7 +1678,16 @@ const cardStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  routeHeading: { flex: 1, paddingRight: SP.md },
+  timeWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingRight: SP.md },
+  timeIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: R.sm,
+    backgroundColor: C.tint,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SP.md,
+  },
   routeEyebrow: {
     color: C.textMuted,
     fontSize: 10,
@@ -1550,15 +1696,15 @@ const cardStyles = StyleSheet.create({
   },
   departureTime: {
     color: C.text,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
-    marginTop: 3,
+    marginTop: 1,
   },
   priceBox: { alignItems: 'flex-end' },
   price: { fontSize: 20, fontWeight: '800', color: C.primary },
   perSeat: { fontSize: 12, color: C.textMuted, marginTop: 1 },
-  timeline: { marginTop: SP.xl },
-  stop: { flexDirection: 'row', alignItems: 'center', minHeight: 30 },
+  timeline: { marginTop: SP.lg },
+  stop: { flexDirection: 'row', alignItems: 'center', minHeight: 26 },
   dotCol: { width: 24, alignItems: 'center', justifyContent: 'center' },
   dotFrom: {
     width: 14,
@@ -1568,7 +1714,7 @@ const cardStyles = StyleSheet.create({
     borderColor: C.primary,
     backgroundColor: C.white,
   },
-  line: { width: 2, height: 30, backgroundColor: C.line },
+  line: { width: 2, height: 22, backgroundColor: C.line },
   place: {
     flex: 1,
     fontSize: 16,
@@ -1576,10 +1722,30 @@ const cardStyles = StyleSheet.create({
     color: C.text,
     marginLeft: SP.sm,
   },
-  distanceTextWrap: { marginLeft: SP.sm, minHeight: 30, justifyContent: 'center' },
+  distanceTextWrap: { marginLeft: SP.sm, minHeight: 22, justifyContent: 'center' },
   distanceText: { color: C.textMuted, fontSize: 12, fontWeight: '600' },
-  divider: { height: 1, backgroundColor: C.border, marginTop: SP.lg, marginBottom: SP.md },
-  pillRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  driverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+    marginTop: SP.md,
+    paddingTop: SP.md,
+  },
+  driverAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: C.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SP.md,
+  },
+  driverInitial: { color: C.white, fontSize: 15, fontWeight: '800' },
+  driverInfo: { flex: 1, paddingRight: SP.sm },
+  driverName: { color: C.text, fontSize: 14, fontWeight: '800' },
+  driverRole: { color: C.textMuted, fontSize: 11, fontWeight: '600', marginTop: 1 },
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: SP.md },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1591,14 +1757,30 @@ const cardStyles = StyleSheet.create({
     maxWidth: '100%',
   },
   pillText: { fontSize: 13, fontWeight: '700', marginLeft: 5, flexShrink: 1 },
+  prefRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SP.md },
+  prefLabel: {
+    color: C.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginRight: SP.sm,
+  },
+  prefIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SP.sm,
+  },
   activityRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: C.background,
     borderRadius: R.md,
     paddingVertical: SP.md,
-    paddingHorizontal: SP.md,
-    marginTop: SP.xs,
+    paddingLeft: SP.md,
+    paddingRight: SP.sm,
   },
   activityItem: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   activityText: { color: C.text, fontSize: 12, fontWeight: '700', marginLeft: 6 },
@@ -1618,47 +1800,50 @@ const cardStyles = StyleSheet.create({
     fontWeight: '700',
     marginLeft: SP.sm,
   },
-  preferenceSection: {
-    marginTop: SP.md,
+});
+
+const skelStyles = StyleSheet.create({
+  card: {
+    backgroundColor: C.white,
+    borderRadius: R.lg,
+    padding: SP.lg,
+    marginBottom: SP.lg,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: C.border,
-    borderRadius: R.md,
-    overflow: 'hidden',
+    ...SHADOW,
   },
-  preferenceToggle: {
-    minHeight: 48,
+  row: { flexDirection: 'row', alignItems: 'center' },
+  skelLine: {
+    width: 2,
+    height: 18,
+    backgroundColor: SKEL_BASE,
+    marginLeft: 6,
+    marginVertical: 4,
+  },
+  sweep: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+  },
+  banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: SP.md,
-    backgroundColor: C.white,
-  },
-  preferenceToggleLeft: { flexDirection: 'row', alignItems: 'center' },
-  preferenceTitle: { color: C.text, fontSize: 13, fontWeight: '800', marginLeft: SP.sm },
-  preferenceCount: {
-    color: C.primary,
+    justifyContent: 'center',
     backgroundColor: C.tint,
-    overflow: 'hidden',
     borderRadius: R.pill,
-    fontSize: 11,
+    paddingVertical: SP.sm,
+    paddingHorizontal: SP.lg,
+    alignSelf: 'center',
+    marginBottom: SP.lg,
+  },
+  bannerText: {
+    color: C.primary,
+    fontSize: 13,
     fontWeight: '800',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
     marginLeft: SP.sm,
   },
-  preferenceGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: SP.md,
-    paddingBottom: SP.md,
-    borderTopWidth: 1,
-    borderTopColor: C.border,
-    backgroundColor: C.background,
-  },
-  preferenceItem: { width: '50%', paddingTop: SP.md, paddingRight: SP.sm },
-  preferenceLabel: { color: C.textMuted, fontSize: 11, fontWeight: '600' },
-  preferenceValue: { color: C.text, fontSize: 13, fontWeight: '700', marginTop: 3 },
-  noPreferences: { color: C.textMuted, fontSize: 12, paddingTop: SP.md },
 });
 
 const styles = StyleSheet.create({

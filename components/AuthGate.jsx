@@ -60,7 +60,7 @@ export default function AuthGate({
 
   // 3. (optional) Logged in but wrong role -> go to the home route.
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Redirect href="/" />;
+    return <Redirect href="/register" />;
   }
 
   // 4. Logged in -> render the protected screen.
