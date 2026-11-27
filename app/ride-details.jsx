@@ -129,8 +129,8 @@ function RuleItem({ icon, label, value, tone = 'default' }) {
   const isAllowed = tone === 'positive';
   const isWarning = tone === 'warning';
 
-  const badgeBg = isAllowed ? '#E8F7EE' : isWarning ? '#FEF3C7' : '#F1F0F7';
-  const badgeColor = isAllowed ? '#16A34A' : isWarning ? '#B45309' : '#374151';
+  const badgeBg = isAllowed ? colors.successSoft : isWarning ? colors.warningSoft : colors.greySoft;
+  const badgeColor = isAllowed ? colors.success : isWarning ? colors.amber : colors.grey;
 
   return (
     <View style={localStyles.ruleItem}>
@@ -389,6 +389,13 @@ export default function RideDetailsScreen() {
           <Ionicons name="shield-checkmark-outline" size={21} color={colors.primary} />
         </View>
       </View>
+
+      {detailsLoading ? (
+        <View style={styles.detailsLoadingBanner} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.detailsLoadingText}>Loading driver and vehicle details...</Text>
+        </View>
+      ) : null}
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         

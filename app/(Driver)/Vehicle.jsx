@@ -124,37 +124,76 @@ function InfoItem({ icon, label, value }) {
 function VehicleCard({ vehicle, expanded, onToggle }) {
   return (
     <View style={styles.vehicleCard}>
-      <Pressable onPress={onToggle} accessibilityRole="button" accessibilityLabel={`View ${vehicle.make} ${vehicle.model} details`}>
-        {vehicle.photoUrl ? (
-          <Image source={{ uri: vehicle.photoUrl }} style={styles.vehicleImage} resizeMode="cover" />
-        ) : (
-          <View style={[styles.vehicleImage, styles.imagePlaceholder]}>
-            <Icon name="car-side" size={54} color={C.primary} />
-            <Text style={styles.placeholderText}>No vehicle photo</Text>
-          </View>
-        )}
+      <View style={styles.vehicleMainRow}>
+        <Pressable
+          onPress={onToggle}
+          style={styles.vehicleImagePressable}
+          accessibilityRole="button"
+          accessibilityLabel={`View ${vehicle.make} ${vehicle.model} details`}
+        >
+          {vehicle.photoUrl ? (
+            <Image
+              source={{ uri: vehicle.photoUrl }}
+              style={styles.vehicleImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.vehicleImage, styles.imagePlaceholder]}>
+              <Icon name="car-side" size={34} color={C.primary} />
+              <Text style={styles.placeholderText}>No photo</Text>
+            </View>
+          )}
+        </Pressable>
+
         <View style={styles.vehicleContent}>
           <View style={styles.vehicleTopRow}>
             <View style={styles.vehicleTitleWrap}>
-              <Text style={styles.vehicleTitle} numberOfLines={1}>{vehicle.make || 'Vehicle'} {vehicle.model}</Text>
-              <Text style={styles.vehicleSubtitle}>{[vehicle.year, vehicle.colour, vehicle.type].filter(Boolean).join('  ·  ')}</Text>
+              <Text style={styles.vehicleTitle} numberOfLines={1}>
+                {vehicle.make || 'Vehicle'} {vehicle.model}
+              </Text>
+              <Text style={styles.vehicleSubtitle} numberOfLines={1}>
+                {[vehicle.year, vehicle.colour, vehicle.type].filter(Boolean).join(' · ') || 'Vehicle details'}
+              </Text>
             </View>
-            <StatusBadge status={vehicle.status} />
           </View>
+
+          <StatusBadge status={vehicle.status} />
+
           <View style={styles.plateRow}>
             <View style={styles.plateBadge}>
-              <Icon name="card-account-details-outline" size={16} color={C.primary} />
-              <Text style={styles.plateText}>{vehicle.plateNo || 'Plate not added'}</Text>
+              <Icon name="card-account-details-outline" size={14} color={C.primary} />
+              <Text style={styles.plateText} numberOfLines={1}>
+                {vehicle.plateNo || 'Plate not added'}
+              </Text>
             </View>
-            <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={24} color={C.textMuted} />
           </View>
+
           <View style={styles.quickFacts}>
-            <View style={styles.factPill}><Icon name="seat-passenger" size={15} color={C.primary} /><Text style={styles.factText}>{vehicle.seats} seats</Text></View>
-            <View style={styles.factPill}><Icon name="snowflake" size={15} color={C.primary} /><Text style={styles.factText}>{vehicle.hasAC ? 'A/C' : 'No A/C'}</Text></View>
-            <View style={styles.factPill}><Icon name="bag-suitcase-outline" size={15} color={C.primary} /><Text style={styles.factText}>{vehicle.luggage || 'Luggage N/A'}</Text></View>
+            <View style={styles.factPill}>
+              <Icon name="seat-passenger" size={14} color={C.primary} />
+              <Text style={styles.factText}>{vehicle.seats} seats</Text>
+            </View>
+            <View style={styles.factPill}>
+              <Icon name="snowflake" size={14} color={C.primary} />
+              <Text style={styles.factText}>{vehicle.hasAC ? 'A/C' : 'No A/C'}</Text>
+            </View>
           </View>
+
+          <Pressable
+            onPress={onToggle}
+            style={styles.moreButton}
+            accessibilityRole="button"
+            accessibilityLabel={expanded ? 'Show less vehicle information' : 'Show more vehicle information'}
+          >
+            <Text style={styles.moreButtonText}>{expanded ? 'Show less' : 'More details'}</Text>
+            <Icon
+              name={expanded ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              color={C.primary}
+            />
+          </Pressable>
         </View>
-      </Pressable>
+      </View>
 
       {expanded ? (
         <View style={styles.expandedArea}>
@@ -168,7 +207,8 @@ function VehicleCard({ vehicle, expanded, onToggle }) {
             <InfoItem icon="bag-suitcase-outline" label="Luggage space" value={vehicle.luggage} />
             <InfoItem icon="file-document-outline" label="CR number" value={vehicle.crNumber} />
           </View>
-          <Text style={[styles.sectionHeading, { marginTop: SP.lg }]}>Document expiry</Text>
+
+          <Text style={[styles.sectionHeading, { marginTop: SP.md }]}>Document expiry</Text>
           <View style={styles.expiryRow}>
             <View style={styles.expiryCopy}>
               <Text style={styles.expiryLabel}>Revenue licence</Text>
@@ -183,7 +223,9 @@ function VehicleCard({ vehicle, expanded, onToggle }) {
             </View>
             <Icon name="shield-check-outline" size={20} color={C.primary} />
           </View>
-          <Text style={styles.recordText}>Added {vehicle.createdAt ? new Date(vehicle.createdAt).toLocaleDateString() : 'date unavailable'}</Text>
+          <Text style={styles.recordText}>
+            Added {vehicle.createdAt ? new Date(vehicle.createdAt).toLocaleDateString() : 'date unavailable'}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -357,24 +399,28 @@ const styles = StyleSheet.create({
   filterChipSelected: { backgroundColor: C.tint, borderColor: C.primary },
   filterText: { fontSize: 12, fontWeight: '600', color: C.textMuted },
   filterTextSelected: { color: C.primary, fontWeight: '800' },
-  vehicleCard: { backgroundColor: C.surface, borderRadius: R.lg, padding: SP.md, marginBottom: SP.lg, ...SHADOW },
-  vehicleImage: { width: '100%', height: 170, borderRadius: R.md, backgroundColor: C.background },
+  vehicleCard: { backgroundColor: C.surface, borderRadius: R.lg, padding: SP.md, marginBottom: SP.md, ...SHADOW },
+  vehicleMainRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  vehicleImagePressable: { width: 104, flexShrink: 0 },
+  vehicleImage: { width: 104, height: 104, borderRadius: R.md, backgroundColor: C.background },
   imagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
-  placeholderText: { color: C.textMuted, fontSize: 12, marginTop: SP.xs },
-  vehicleContent: { paddingHorizontal: SP.xs, paddingTop: SP.md },
+  placeholderText: { color: C.textMuted, fontSize: 10, marginTop: SP.xs },
+  vehicleContent: { flex: 1, minWidth: 0, paddingLeft: SP.md },
   vehicleTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-  vehicleTitleWrap: { flex: 1, paddingRight: SP.sm },
-  vehicleTitle: { fontSize: 18, fontWeight: '800', color: C.text },
-  vehicleSubtitle: { fontSize: 12, color: C.textMuted, marginTop: 4 },
+  vehicleTitleWrap: { flex: 1, paddingRight: SP.xs },
+  vehicleTitle: { fontSize: 16, fontWeight: '800', color: C.text },
+  vehicleSubtitle: { fontSize: 11, color: C.textMuted, marginTop: 3 },
   statusBadge: { flexDirection: 'row', alignItems: 'center', borderRadius: R.pill, paddingHorizontal: 10, paddingVertical: 6 },
   statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
-  statusText: { fontSize: 11, fontWeight: '800', textTransform: 'capitalize' },
-  plateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: SP.md },
-  plateBadge: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: C.borderSubtle, backgroundColor: C.background, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 7 },
-  plateText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.6, color: C.text, marginLeft: 7 },
-  quickFacts: { flexDirection: 'row', flexWrap: 'wrap', marginTop: SP.md },
-  factPill: { flexDirection: 'row', alignItems: 'center', borderRadius: R.pill, backgroundColor: C.tint, paddingHorizontal: 10, paddingVertical: 7, marginRight: 7, marginBottom: 5 },
-  factText: { fontSize: 11, color: C.secondary, fontWeight: '700', marginLeft: 5 },
+  statusText: { fontSize: 10, fontWeight: '800', textTransform: 'capitalize' },
+  plateRow: { flexDirection: 'row', alignItems: 'center', marginTop: SP.sm },
+  plateBadge: { maxWidth: '100%', flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: C.borderSubtle, backgroundColor: C.background, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },
+  plateText: { flexShrink: 1, fontSize: 11, fontWeight: '800', letterSpacing: 0.4, color: C.text, marginLeft: 5 },
+  quickFacts: { flexDirection: 'row', flexWrap: 'wrap', marginTop: SP.sm },
+  factPill: { flexDirection: 'row', alignItems: 'center', borderRadius: R.pill, backgroundColor: C.tint, paddingHorizontal: 8, paddingVertical: 5, marginRight: 5, marginBottom: 4 },
+  factText: { fontSize: 10, color: C.secondary, fontWeight: '700', marginLeft: 4 },
+  moreButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginTop: 3, paddingVertical: 4 },
+  moreButtonText: { color: C.primary, fontSize: 11, fontWeight: '800', marginRight: 3 },
   expandedArea: { paddingHorizontal: SP.xs, paddingTop: SP.md },
   sectionDivider: { height: 1, backgroundColor: C.borderSubtle, marginBottom: SP.lg },
   sectionHeading: { fontSize: 14, fontWeight: '800', color: C.text, marginBottom: SP.md },

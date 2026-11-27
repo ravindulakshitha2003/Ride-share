@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -185,21 +185,20 @@ const VEHICLE_ICONS = {
 
 function getRideVehicleType(ride) {
   const type = ride?.vehicleType || ride?.driver?.vehicleType;
-  return VEHICLE_ICONS[type] ? type : 'Other';
+  return VEHICLE_ICONS[type] ? type : null;
 }
 
 function getRideHasAC(ride) {
-  return !!(ride?.driver?.hasAC ?? ride?.hasAC);
+  const value = ride?.hasAC ?? ride?.driver?.hasAC;
+  return value === null || value === undefined ? null : Boolean(value);
 }
 
-function formatPrice(amount) {
+function formatPrice(amount, currency = 'LKR') {
   if (amount === undefined || amount === null || Number.isNaN(Number(amount))) {
     return '-';
   }
-  return `Rs ${String(Math.round(Number(amount))).replace(
-    /\B(?=(\d{3})+(?!\d))/g,
-    ','
-  )}`;
+  const formatted = String(Math.round(Number(amount))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${currency === 'LKR' ? 'LKR' : currency} ${formatted}`;
 }
 
 function formatDuration(minutes) {
@@ -212,6 +211,7 @@ function formatDuration(minutes) {
 }
 
 function formatDistance(meters) {
+  if (meters === null || meters === undefined || meters === '') return '';
   const m = Number(meters);
   if (!Number.isFinite(m)) return '';
   if (m < 1000) return `${Math.round(m)} m`;
@@ -272,376 +272,254 @@ function formatDateForBackend(date) {
   )}`;
 }
 
-function hashString(value) {
-  let h = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    h = (h * 31 + value.charCodeAt(i)) >>> 0;
-  }
-  return h;
-}
-
 /* =======================================================
    BACKEND RESPONSE NORMALIZER
 ======================================================= */
-const MOCK_DRIVERS = [
-  {
-    vehicleType: 'Car',
-    driver: {
-      name: 'Kasun Perera',
-      photoUrl: 'https://i.pravatar.cc/150?img=12',
-      verified: true,
-      rating: 4.8,
-      ridesCount: 42,
-      vehicle: 'Toyota Axio',
-      hasAC: true,
-    },
-  },
-  {
-    vehicleType: 'Van',
-    driver: {
-      name: 'Nimal Fernando',
-      photoUrl: 'https://i.pravatar.cc/150?img=33',
-      verified: true,
-      rating: 4.6,
-      ridesCount: 128,
-      vehicle: 'Toyota HiAce',
-      hasAC: true,
-    },
-  },
-  {
-    vehicleType: 'SUV',
-    driver: {
-      name: 'Dilani Silva',
-      photoUrl: 'https://i.pravatar.cc/150?img=47',
-      verified: true,
-      rating: 4.9,
-      ridesCount: 87,
-      vehicle: 'Mitsubishi Montero',
-      hasAC: true,
-    },
-  },
-];
-
 function mapBackendRide(row, date) {
-  const profile =
-    MOCK_DRIVERS[hashString(String(row.route_id || row.id || '0')) % MOCK_DRIVERS.length];
-
-  // Parse departure time robustly from various possible fields
   const rawDeparture =
     row.departure_at ||
     row.departureAt ||
     (row.departureDate && row.departureTime
       ? `${row.departureDate}T${row.departureTime}`
       : null);
-  const departure = rawDeparture ? new Date(rawDeparture) : new Date();
+  const departure = rawDeparture ? new Date(rawDeparture) : null;
+  const validDeparture = departure && !Number.isNaN(departure.getTime());
 
-  // Parse duration in minutes
-  const durationSec = Number(
-    row.full_route_duration_seconds ?? row.durationSeconds ?? 0
-  );
-  const durationMin = durationSec > 0
-    ? Math.round(durationSec / 60)
-    : Number(row.durationMin || 0);
-
-  const arrival = new Date(departure.getTime() + (durationMin || 60) * 60000);
-
-  // Extract driver and vehicle IDs from all possible conventions
   const driverId =
-    row.driver_id ||
-    row.driverId ||
-    row.driverID ||
-    row.driver?._id ||
-    row.driver?.id ||
-    null;
-
+    row.driver_id || row.driverId || row.driverID || row.driver?._id || row.driver?.id || null;
   const vehicleId =
-    row.vehicle_id ||
-    row.vehicleId ||
-    row.vehicalID ||
-    row.vehicalId ||
-    row.vehicle?._id ||
-    row.vehicle?.id ||
-    null;
+    row.vehicle_id || row.vehicleId || row.vehicalID || row.vehicalId || row.vehicle?._id || row.vehicle?.id || null;
 
-  // Extract origin and destination place names
   const fromName =
     row.origin_name ||
     (typeof row.origin === 'string' ? row.origin : row.origin?.placeName || row.origin?.name) ||
     'Origin';
-
   const toName =
     row.destination_name ||
     (typeof row.destination === 'string' ? row.destination : row.destination?.placeName || row.destination?.name) ||
     'Destination';
 
-  // Extract intermediate stops & preferences
-  const intermediateStops = row.intermediate_stops || row.intermediateStops || [];
+  const intermediateStops = Array.isArray(row.intermediate_stops)
+    ? row.intermediate_stops
+    : Array.isArray(row.intermediateStops)
+      ? row.intermediateStops
+      : [];
   const ridePreferences = row.ride_preferences || row.ridePreferences || {};
   const maxPassengerWaitingMinutes = Number(
     row.max_passenger_waiting_minutes ?? row.maxPassengerWaitingMinutes ?? 10
   );
 
   return {
-    rawRide: row, // Preserves the raw snake_case backend row
+    rawRide: row,
     id: row.route_id || row.id,
     date,
     from: fromName,
     to: toName,
-    departureTime: formatTime(departure),
-    arrivalTime: formatTime(arrival),
-    durationMin,
-    pricePerSeat: Number(row.price_per_seat ?? row.pricePerSeat ?? 0),
-    currency: row.currency || 'Rs',
-    seatsFree: Number(row.available_seats ?? row.availableSeats ?? 1),
-
-    vehicleType: row.vehicle_type || profile.vehicleType,
-    driver: {
-      name: row.driver_name || profile.driver.name,
-      photoUrl: row.driver_photo_url || profile.driver.photoUrl,
-      verified: row.is_driver_verified ?? profile.driver.verified,
-      rating: Number(row.driver_rating || profile.driver.rating),
-      ridesCount: Number(row.driver_rides_count || profile.driver.ridesCount),
-      vehicle: row.vehicle_model || profile.driver.vehicle,
-      hasAC: row.has_ac != null ? Boolean(row.has_ac) : profile.driver.hasAC,
-    },
-
+    departureTime: validDeparture ? formatTime(departure) : 'Time unavailable',
+    // The backend only supplies the driver's full-route duration. It is not
+    // the passenger's matched-segment duration, so do not calculate arrival.
+    durationMin: null,
+    arrivalTime: null,
+    pricePerSeat: Number(row.price_per_seat ?? row.pricePerSeat ?? NaN),
+    currency: row.currency || 'LKR',
+    seatsFree: Number(row.available_seats ?? row.availableSeats ?? NaN),
     driverId,
     vehicleId,
-    pickupDistanceMeters: Number(row.pickup_distance_meters ?? row.pickupDistanceMeters ?? 0),
-    dropoffDistanceMeters: Number(row.dropoff_distance_meters ?? row.dropoffDistanceMeters ?? 0),
-    rideDistanceMeters: Number(row.ride_distance_meters ?? row.rideDistanceMeters ?? row.distanceMeters ?? 0),
+    requestCount: Number(row.no_of_requests ?? row.noOfRequests ?? 0),
+    bookingCount: Number(row.no_of_bookings ?? row.noOfBookings ?? 0),
+    pickupDistanceMeters: row.pickup_distance_meters == null && row.pickupDistanceMeters == null ? null : Number(row.pickup_distance_meters ?? row.pickupDistanceMeters),
+    dropoffDistanceMeters: row.dropoff_distance_meters == null && row.dropoffDistanceMeters == null ? null : Number(row.dropoff_distance_meters ?? row.dropoffDistanceMeters),
+    rideDistanceMeters: row.ride_distance_meters == null && row.rideDistanceMeters == null && row.distanceMeters == null ? null : Number(row.ride_distance_meters ?? row.rideDistanceMeters ?? row.distanceMeters),
+    fullRouteDistanceMeters: Number(row.full_route_distance_meters ?? 0),
+    fullRouteDurationSeconds: Number(row.full_route_duration_seconds ?? 0),
     suggestedPickup: row.suggested_pickup || row.suggestedPickup || row.origin,
     suggestedDropoff: row.suggested_dropoff || row.suggestedDropoff || row.destination,
     matchedRouteSegment: row.matched_route_segment || row.matchedRouteSegment || row.geometry,
-    // New fields from backend:
     intermediateStops,
     ridePreferences,
     maxPassengerWaitingMinutes,
+    // Keep these only when the backend actually supplies them. Never invent
+    // vehicle details to populate the existing optional filters.
+    vehicleType: row.vehicle_type || row.vehicleType || null,
+    hasAC: row.has_ac ?? row.hasAC ?? null,
   };
 }
 
 /* =======================================================
-   CARD & AVATAR SUBCOMPONENTS
+   CARD SUBCOMPONENTS
 ======================================================= */
-function Avatar({ name, uri, verified }) {
-  const [failed, setFailed] = useState(false);
-  const initial = (name || '?').charAt(0).toUpperCase();
-
-  return (
-    <View style={cardStyles.avatarWrap}>
-      <View style={cardStyles.avatar}>
-        {uri && !failed ? (
-          <Image
-            source={{ uri }}
-            style={cardStyles.avatarImage}
-            onError={() => setFailed(true)}
-          />
-        ) : (
-          <Text style={cardStyles.avatarText}>{initial}</Text>
-        )}
-      </View>
-
-      {verified ? (
-        <View style={cardStyles.verifiedBadge}>
-          <Icon name="check" size={11} color={C.white} />
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 const TONES = {
   violet: { bg: C.tint, fg: C.primary },
   green: { bg: C.successSoft, fg: C.success },
   grey: { bg: C.greySoft, fg: C.grey },
-  amber: { bg: C.amberSoft, fg: C.amber },
+  amber: { bg: C.warningSoft, fg: C.amber },
 };
 
 function InfoPill({ icon, label, tone = 'violet' }) {
   const colors = TONES[tone] || TONES.violet;
-
   return (
     <View style={[cardStyles.pill, { backgroundColor: colors.bg }]}>
       <Icon name={icon} size={15} color={colors.fg} />
-      <Text
-        style={[cardStyles.pillText, { color: colors.fg }]}
-        numberOfLines={1}
-      >
+      <Text style={[cardStyles.pillText, { color: colors.fg }]} numberOfLines={1}>
         {label}
       </Text>
     </View>
   );
 }
 
-function RouteCard({ ride, onPress }) {
-  const driver = ride.driver || {};
-  const vehicleType = getRideVehicleType(ride);
-  const hasAC = getRideHasAC(ride);
-  const duration = formatDuration(ride.durationMin);
-  const seats = Number(ride.seatsFree);
-  const rating = Number(driver.rating);
-  const pickupAway = formatDistance(ride.pickupDistanceMeters);
+const PREFERENCE_LABELS = {
+  food: 'Food',
+  pets: 'Pets',
+  music: 'Music',
+  gender: 'Passenger preference',
+  maxAge: 'Maximum age',
+  minAge: 'Minimum age',
+  luggage: 'Luggage',
+  smoking: 'Smoking',
+};
 
-  const vehicleLabel = driver.vehicle ? `${driver.vehicle}` : vehicleType;
+function formatPreferenceValue(value) {
+  if (value === null || value === undefined || value === '') return 'No limit';
+  const labels = {
+    allowed: 'Allowed',
+    not_allowed: 'Not allowed',
+    ask_first: 'Ask first',
+    any: 'Any',
+    standard: 'Standard',
+    light: 'Light',
+    large: 'Large',
+    male: 'Male',
+    female: 'Female',
+  };
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  const normalized = String(value);
+  return labels[normalized] || normalized.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function RouteCard({ ride, onPress, isNavigating, navigationPending }) {
+  const [preferencesExpanded, setPreferencesExpanded] = useState(false);
+  const seats = Number(ride.seatsFree);
+  const pickupAway = formatDistance(ride.pickupDistanceMeters);
+  const preferences = ride.ridePreferences || {};
+  const preferenceEntries = Object.entries(PREFERENCE_LABELS)
+    .filter(([key]) => Object.prototype.hasOwnProperty.call(preferences, key))
+    .map(([key, label]) => ({ key, label, value: formatPreferenceValue(preferences[key]) }));
 
   const accessibilityLabel =
-    `${driver.name || 'Driver'}, ${ride.from} to ${ride.to}, ` +
-    `departs ${ride.departureTime}, ${formatPrice(ride.pricePerSeat)} per seat`;
+    `${ride.from} to ${ride.to}, departs ${ride.departureTime}, ` +
+    `${formatPrice(ride.pricePerSeat, ride.currency)} per seat`;
 
   return (
-    <PressScale
-      onPress={onPress}
-      label={accessibilityLabel}
-      style={cardStyles.card}
-    >
+    <View style={cardStyles.card}>
+      <PressScale
+        onPress={onPress}
+        disabled={navigationPending}
+        label={accessibilityLabel}
+        style={cardStyles.cardPressArea}
+      >
       <View style={cardStyles.topRow}>
-        <Avatar
-          name={driver.name}
-          uri={driver.photoUrl}
-          verified={driver.verified}
-        />
-
-        <View style={cardStyles.driverInfo}>
-          <Text style={cardStyles.driverName} numberOfLines={1}>
-            {driver.name || 'Driver'}
-          </Text>
-
-          <View style={cardStyles.ratingRow}>
-            <Icon name="star" size={15} color={C.star} />
-            <Text style={cardStyles.ratingText}>
-              {Number.isFinite(rating) && rating > 0
-                ? rating.toFixed(1)
-                : 'New'}
-            </Text>
-
-            {driver.ridesCount ? (
-              <Text style={cardStyles.ridesCount}>
-                {' '}· {driver.ridesCount} rides
-              </Text>
-            ) : null}
-          </View>
+        <View style={cardStyles.routeHeading}>
+          <Text style={cardStyles.routeEyebrow}>AVAILABLE RIDE</Text>
+          <Text style={cardStyles.departureTime}>{ride.departureTime}</Text>
         </View>
-
         <View style={cardStyles.priceBox}>
-          <Text style={cardStyles.price}>
-            {formatPrice(ride.pricePerSeat)}
-          </Text>
+          <Text style={cardStyles.price}>{formatPrice(ride.pricePerSeat, ride.currency)}</Text>
           <Text style={cardStyles.perSeat}>per seat</Text>
         </View>
       </View>
 
       <View style={cardStyles.timeline}>
         <View style={cardStyles.stop}>
-          <Text style={cardStyles.time}>{ride.departureTime}</Text>
-
-          <View style={cardStyles.dotCol}>
-            <View style={cardStyles.dotFrom} />
-          </View>
-
-          <Text style={cardStyles.place} numberOfLines={1}>
-            {ride.from}
-          </Text>
+          <View style={cardStyles.dotCol}><View style={cardStyles.dotFrom} /></View>
+          <Text style={cardStyles.place} numberOfLines={2}>{ride.from}</Text>
         </View>
-
         <View style={cardStyles.stop}>
-          <View style={cardStyles.timeSpacer} />
-
-          <View style={cardStyles.dotCol}>
-            <View style={cardStyles.line} />
+          <View style={cardStyles.dotCol}><View style={cardStyles.line} /></View>
+          <View style={cardStyles.distanceTextWrap}>
+            <Text style={cardStyles.distanceText}>
+              {formatDistance(ride.rideDistanceMeters) || 'Route distance unavailable'}
+            </Text>
           </View>
-
-          {duration ? (
-            <View style={cardStyles.durationChip}>
-              <Icon
-                name="clock-outline"
-                size={13}
-                color={C.textMuted}
-              />
-              <Text style={cardStyles.durationText}>{duration}</Text>
-            </View>
-          ) : (
-            <View style={cardStyles.durationSpacer} />
-          )}
         </View>
-
         <View style={cardStyles.stop}>
-          <Text style={cardStyles.time}>{ride.arrivalTime}</Text>
-
           <View style={cardStyles.dotCol}>
             <Icon name="map-marker" size={20} color={C.primary} />
           </View>
-
-          <Text style={cardStyles.place} numberOfLines={1}>
-            {ride.to}
-          </Text>
+          <Text style={cardStyles.place} numberOfLines={2}>{ride.to}</Text>
         </View>
       </View>
 
       <View style={cardStyles.divider} />
 
       <View style={cardStyles.pillRow}>
-        {ride.intermediateStops && ride.intermediateStops.length > 0 ? (
-          <InfoPill
-            icon="map-marker-path"
-            label={`${ride.intermediateStops.length} stop${ride.intermediateStops.length === 1 ? '' : 's'}`}
-            tone="violet"
-          />
+        {ride.intermediateStops.length > 0 ? (
+          <InfoPill icon="map-marker-path" label={`${ride.intermediateStops.length} stop${ride.intermediateStops.length === 1 ? '' : 's'}`} />
         ) : (
-          <InfoPill
-            icon="ray-start-end"
-            label="Direct"
-            tone="grey"
-          />
+          <InfoPill icon="ray-start-end" label="Direct route" tone="grey" />
         )}
-        
-        {ride.maxPassengerWaitingMinutes ? (
-          <InfoPill
-            icon="timer-sand"
-            label={`Wait ${ride.maxPassengerWaitingMinutes}m`}
-            tone="grey"
-          />
+        {ride.maxPassengerWaitingMinutes > 0 ? (
+          <InfoPill icon="timer-sand" label={`Wait up to ${ride.maxPassengerWaitingMinutes} min`} tone="grey" />
         ) : null}
-
-        <InfoPill
-          icon={VEHICLE_ICONS[vehicleType]}
-          label={vehicleLabel}
-        />
-
-        <InfoPill
-          icon={hasAC ? 'snowflake' : 'snowflake-off'}
-          label={hasAC ? 'AC' : 'No AC'}
-          tone={hasAC ? 'green' : 'grey'}
-        />
-
         {Number.isFinite(seats) ? (
-          <InfoPill
-            icon="seat-passenger"
-            label={
-              seats <= 0
-                ? 'Full'
-                : `${seats} seat${seats === 1 ? '' : 's'} left`
-            }
-            tone={seats <= 2 ? 'amber' : 'violet'}
-          />
+          <InfoPill icon="seat-passenger" label={seats <= 0 ? 'Full' : `${seats} seat${seats === 1 ? '' : 's'} left`} tone={seats <= 2 ? 'amber' : 'violet'} />
         ) : null}
-
-        {pickupAway ? (
-          <InfoPill
-            icon="walk"
-            label={`Pickup ${pickupAway} away`}
-            tone="grey"
-          />
-        ) : null}
-
-        {driver.verified ? (
-          <InfoPill
-            icon="check-decagram"
-            label="Verified"
-            tone="green"
-          />
+        {pickupAway ? <InfoPill icon="walk" label={`Pickup ${pickupAway} away`} tone="grey" /> : null}
+        {formatDistance(ride.dropoffDistanceMeters) ? (
+          <InfoPill icon="map-marker-check-outline" label={`Drop-off ${formatDistance(ride.dropoffDistanceMeters)} away`} tone="grey" />
         ) : null}
       </View>
-    </PressScale>
+
+      <View style={cardStyles.activityRow}>
+        <View style={cardStyles.activityItem}>
+          <Icon name="account-clock-outline" size={17} color={C.primary} />
+          <Text style={cardStyles.activityText}>{ride.requestCount} requests</Text>
+        </View>
+        <View style={cardStyles.activityDivider} />
+        <View style={cardStyles.activityItem}>
+          <Icon name="ticket-confirmation-outline" size={17} color={C.success} />
+          <Text style={cardStyles.activityText}>{ride.bookingCount} bookings</Text>
+        </View>
+      </View>
+
+      {isNavigating ? (
+        <View style={cardStyles.openingRow}>
+          <ActivityIndicator size="small" color={C.primary} />
+          <Text style={cardStyles.openingText}>Opening ride details...</Text>
+        </View>
+      ) : null}
+
+      </PressScale>
+
+      <View style={cardStyles.preferenceSection}>
+        <Pressable
+          style={cardStyles.preferenceToggle}
+          onPress={() => setPreferencesExpanded((expanded) => !expanded)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: preferencesExpanded }}
+          accessibilityLabel="Show ride preferences"
+        >
+          <View style={cardStyles.preferenceToggleLeft}>
+            <Icon name="tune-variant" size={17} color={C.primary} />
+            <Text style={cardStyles.preferenceTitle}>Ride preferences</Text>
+            <Text style={cardStyles.preferenceCount}>{preferenceEntries.length}</Text>
+          </View>
+          <Icon name={preferencesExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={C.primary} />
+        </Pressable>
+
+        {preferencesExpanded ? (
+          <View style={cardStyles.preferenceGrid}>
+            {preferenceEntries.length > 0 ? preferenceEntries.map((item) => (
+              <View key={item.key} style={cardStyles.preferenceItem}>
+                <Text style={cardStyles.preferenceLabel}>{item.label}</Text>
+                <Text style={cardStyles.preferenceValue}>{item.value}</Text>
+              </View>
+            )) : (
+              <Text style={cardStyles.noPreferences}>No ride preferences were provided.</Text>
+            )}
+          </View>
+        ) : null}
+      </View>
+    </View>
   );
 }
 
@@ -663,7 +541,7 @@ const INITIAL_FILTERS = {
   types: [],
 };
 
-function FilterPanel({ open, filters, onChange, onClear }) {
+function FilterPanel({ open, filters, onChange, onClear, acFilterAvailable, vehicleFiltersAvailable }) {
   const anim = useRef(new Animated.Value(0)).current;
   const [mounted, setMounted] = useState(open);
 
@@ -725,7 +603,8 @@ function FilterPanel({ open, filters, onChange, onClear }) {
             <Pressable
               key={option.value}
               onPress={() => onChange({ ...filters, ac: option.value })}
-              style={[styles.seg, selected && styles.segOn]}
+              disabled={option.value !== 'any' && !acFilterAvailable}
+              style={[styles.seg, selected && styles.segOn, option.value !== 'any' && !acFilterAvailable && styles.filterDisabled]}
               accessibilityRole="radio"
               accessibilityLabel={option.label}
               accessibilityState={{ selected }}
@@ -754,7 +633,8 @@ function FilterPanel({ open, filters, onChange, onClear }) {
             <Pressable
               key={type}
               onPress={() => toggleType(type)}
-              style={[styles.chip, selected && styles.chipOn]}
+              disabled={!vehicleFiltersAvailable}
+              style={[styles.chip, selected && styles.chipOn, !vehicleFiltersAvailable && styles.filterDisabled]}
               accessibilityRole="button"
               accessibilityLabel={`${type} vehicles`}
               accessibilityState={{ selected }}
@@ -771,6 +651,12 @@ function FilterPanel({ open, filters, onChange, onClear }) {
           );
         })}
       </View>
+
+      {(!acFilterAvailable || !vehicleFiltersAvailable) ? (
+        <Text style={styles.filterUnavailable}>
+          Vehicle type and air-conditioning filters are available only when the search response includes those details.
+        </Text>
+      ) : null}
 
       {hasActive ? (
         <Pressable
@@ -817,6 +703,12 @@ export default function ResultsScreen({ route }) {
   const [searchError, setSearchError] = useState('');
   const [apiError, setApiError] = useState('');
   const [navigatingRideId, setNavigatingRideId] = useState(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      setNavigatingRideId(null);
+    }, [])
+  );
 
   // Filters
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -950,12 +842,13 @@ export default function ResultsScreen({ route }) {
   const visibleRides = useMemo(() => {
     return (rides || []).filter((ride) => {
       const hasAC = getRideHasAC(ride);
+      if (filters.ac !== 'any' && hasAC === null) return false;
       if (filters.ac === 'ac' && !hasAC) return false;
       if (filters.ac === 'noac' && hasAC) return false;
 
       if (
         filters.types.length > 0 &&
-        !filters.types.includes(getRideVehicleType(ride))
+        (!getRideVehicleType(ride) || !filters.types.includes(getRideVehicleType(ride)))
       ) {
         return false;
       }
@@ -966,6 +859,8 @@ export default function ResultsScreen({ route }) {
 
   const activeFilterCount =
     (filters.ac !== 'any' ? 1 : 0) + filters.types.length;
+  const acFilterAvailable = rides.some((ride) => getRideHasAC(ride) !== null);
+  const vehicleFiltersAvailable = rides.some((ride) => getRideVehicleType(ride) !== null);
 
   const clearFilters = useCallback(() => {
     setFilters(INITIAL_FILTERS);
@@ -975,107 +870,110 @@ export default function ResultsScreen({ route }) {
     ({ item }) => (
       <MemoRouteCard
         ride={item}
+        isNavigating={navigatingRideId === String(item.id ?? item._id ?? 'navigating')}
+        navigationPending={!!navigatingRideId}
         onPress={() => {
           if (navigatingRideId) return; // Prevent duplicate rapid taps
-          setNavigatingRideId(item.id ?? item._id ?? 'navigating');
 
-          try {
-            const raw = item.rawRide || {};
-            const driverId =
-              item.driverId ||
-              raw.driver_id ||
-              raw.driverID ||
-              raw.driverId ||
-              item.driver?.id ||
-              item.driver?._id;
+          const rideKey = String(item.id ?? item._id ?? 'navigating');
+          setNavigatingRideId(rideKey);
 
-            const vehicleId =
-              item.vehicleId ||
-              raw.vehicle_id ||
-              raw.vehicalID ||
-              raw.vehicleId ||
-              raw.vehicalId ||
-              item.vehicle?.id ||
-              item.vehicle?._id;
+          const raw = item.rawRide || {};
+          const driverId =
+            item.driverId ||
+            raw.driver_id ||
+            raw.driverID ||
+            raw.driverId ||
+            item.driver?.id ||
+            item.driver?._id;
 
-            router.push({
-              pathname: '/ride-details',
-              params: {
-                ride: JSON.stringify({
-                  ...raw,
-                  ...item,
-                  // Normalized driver and vehicle IDs
-                  driver_id: driverId,
-                  driverID: driverId,
-                  driverId: driverId,
-                  vehicle_id: vehicleId,
-                  vehicalID: vehicleId,
-                  vehicleId: vehicleId,
-                  
-                  // New backend fields
-                  intermediate_stops: item.intermediateStops || raw.intermediate_stops || [],
-                  intermediateStops: item.intermediateStops || raw.intermediate_stops || [],
-                  ride_preferences: item.ridePreferences || raw.ride_preferences || {},
-                  ridePreferences: item.ridePreferences || raw.ride_preferences || {},
-                  max_passenger_waiting_minutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
-                  maxPassengerWaitingMinutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
+          const vehicleId =
+            item.vehicleId ||
+            raw.vehicle_id ||
+            raw.vehicalID ||
+            raw.vehicleId ||
+            raw.vehicalId ||
+            item.vehicle?.id ||
+            item.vehicle?._id;
 
-                  // Normalized route endpoints
-                  origin_name: item.from || raw.origin_name || raw.origin?.name || raw.origin,
-                  destination_name: item.to || raw.destination_name || raw.destination?.name || raw.destination,
-                  from: item.from,
-                  to: item.to,
+          const rideDetails = {
+            ...raw,
+            ...item,
+            // Normalized driver and vehicle IDs
+            driver_id: driverId,
+            driverID: driverId,
+            driverId,
+            vehicle_id: vehicleId,
+            vehicalID: vehicleId,
+            vehicleId,
 
-                  // Normalized pricing and seat availability
-                  price_per_seat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
-                  pricePerSeat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
-                  available_seats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
-                  availableSeats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
-                  seatsFree: item.seatsFree,
+            // New backend fields
+            intermediate_stops: item.intermediateStops || raw.intermediate_stops || [],
+            intermediateStops: item.intermediateStops || raw.intermediate_stops || [],
+            ride_preferences: item.ridePreferences || raw.ride_preferences || {},
+            ridePreferences: item.ridePreferences || raw.ride_preferences || {},
+            max_passenger_waiting_minutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
+            maxPassengerWaitingMinutes: item.maxPassengerWaitingMinutes ?? raw.max_passenger_waiting_minutes ?? 10,
 
-                  // Normalized departures and timings
-                  departure_at:
-                    raw.departure_at ||
-                    raw.departureAt ||
-                    (item.date ? `${item.date}T${item.departureTime || '00:00'}` : undefined),
-                  departureTime: item.departureTime,
-                  arrivalTime: item.arrivalTime,
-                  date: item.date,
+            // Normalized route endpoints
+            origin_name: item.from || raw.origin_name || raw.origin?.name || raw.origin,
+            destination_name: item.to || raw.destination_name || raw.destination?.name || raw.destination,
+            from: item.from,
+            to: item.to,
 
-                  // Metrics
-                  full_route_distance_meters:
-                    raw.full_route_distance_meters ?? raw.distanceMeters ?? item.rideDistanceMeters,
-                  full_route_duration_seconds:
-                    raw.full_route_duration_seconds ??
-                    raw.durationSeconds ??
-                    (item.durationMin ? item.durationMin * 60 : undefined),
-                  ride_distance_meters:
-                    raw.ride_distance_meters ?? item.rideDistanceMeters ?? raw.distanceMeters,
-                  pickup_distance_meters: item.pickupDistanceMeters ?? raw.pickup_distance_meters,
-                  dropoff_distance_meters: item.dropoffDistanceMeters ?? raw.dropoff_distance_meters,
+            // Normalized pricing and seat availability
+            price_per_seat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+            pricePerSeat: item.pricePerSeat ?? raw.price_per_seat ?? raw.pricePerSeat,
+            available_seats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+            availableSeats: item.seatsFree ?? raw.available_seats ?? raw.availableSeats,
+            seatsFree: item.seatsFree,
 
-                  // Map markers and route geometry
-                  suggested_pickup: item.suggestedPickup || raw.suggested_pickup || fromCoords,
-                  suggested_dropoff: item.suggestedDropoff || raw.suggested_dropoff || toCoords,
-                  matched_route_segment:
-                    item.matchedRouteSegment || raw.matched_route_segment || raw.geometry,
+            // Normalized departures and timings
+            departure_at:
+              raw.departure_at ||
+              raw.departureAt ||
+              (item.date ? `${item.date}T${item.departureTime || '00:00'}` : undefined),
+            departureTime: item.departureTime,
+            date: item.date,
 
-                  // Search coordinates passed as fallback
-                  searchPickup: fromCoords,
-                  searchDropoff: toCoords,
-                }),
-                passengers: String(passengers),
-              },
-            });
-          } catch (err) {
-            showToast({
-              type: 'error',
-              title: 'Navigation Error',
-              message: 'Could not open ride details. Please try again.',
-            });
-          } finally {
-            setTimeout(() => setNavigatingRideId(null), 1000);
-          }
+            // Metrics
+            full_route_distance_meters:
+              raw.full_route_distance_meters ?? raw.distanceMeters ?? item.rideDistanceMeters,
+            full_route_duration_seconds: raw.full_route_duration_seconds ?? raw.durationSeconds,
+            ride_distance_meters:
+              raw.ride_distance_meters ?? item.rideDistanceMeters ?? raw.distanceMeters,
+            pickup_distance_meters: item.pickupDistanceMeters ?? raw.pickup_distance_meters,
+            dropoff_distance_meters: item.dropoffDistanceMeters ?? raw.dropoff_distance_meters,
+
+            // Map markers and route geometry
+            suggested_pickup: item.suggestedPickup || raw.suggested_pickup || fromCoords,
+            suggested_dropoff: item.suggestedDropoff || raw.suggested_dropoff || toCoords,
+            matched_route_segment:
+              item.matchedRouteSegment || raw.matched_route_segment || raw.geometry,
+
+            // Search coordinates passed as fallback
+            searchPickup: fromCoords,
+            searchDropoff: toCoords,
+          };
+
+          requestAnimationFrame(() => {
+            try {
+              router.push({
+                pathname: '/ride-details',
+                params: {
+                  ride: JSON.stringify(rideDetails),
+                  passengers: String(passengers),
+                },
+              });
+            } catch (err) {
+              setNavigatingRideId(null);
+              showToast({
+                type: 'error',
+                title: 'Navigation Error',
+                message: 'Could not open ride details. Please try again.',
+              });
+            }
+          });
         }}
       />
     ),
@@ -1346,6 +1244,8 @@ export default function ResultsScreen({ route }) {
               filters={filters}
               onChange={setFilters}
               onClear={clearFilters}
+              acFilterAvailable={acFilterAvailable}
+              vehicleFiltersAvailable={vehicleFiltersAvailable}
             />
           </>
         ) : null}
@@ -1635,106 +1535,31 @@ const cardStyles = StyleSheet.create({
     marginBottom: SP.lg,
     ...SHADOW,
   },
+  cardPressArea: {},
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  avatarWrap: {
-    width: 56,
-    height: 56,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: C.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: C.tint,
-  },
-  avatarImage: {
-    width: 56,
-    height: 56,
-  },
-  avatarText: {
-    color: C.white,
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  verifiedBadge: {
-    position: 'absolute',
-    right: -2,
-    bottom: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: C.success,
-    borderWidth: 2,
-    borderColor: C.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  driverInfo: {
-    flex: 1,
-    marginLeft: SP.md,
-    paddingRight: SP.sm,
-  },
-  driverName: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: C.text,
-  },
-  ratingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 3,
-  },
-  ratingText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: C.text,
-    marginLeft: 3,
-  },
-  ridesCount: {
-    fontSize: 13,
+  routeHeading: { flex: 1, paddingRight: SP.md },
+  routeEyebrow: {
     color: C.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
-  priceBox: {
-    alignItems: 'flex-end',
-  },
-  price: {
+  departureTime: {
+    color: C.text,
     fontSize: 20,
     fontWeight: '800',
-    color: C.primary,
+    marginTop: 3,
   },
-  perSeat: {
-    fontSize: 12,
-    color: C.textMuted,
-    marginTop: 1,
-  },
-  timeline: {
-    marginTop: SP.xl,
-  },
-  stop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  time: {
-    width: 76,
-    fontSize: 14,
-    fontWeight: '700',
-    color: C.text,
-  },
-  timeSpacer: {
-    width: 76,
-  },
-  dotCol: {
-    width: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  priceBox: { alignItems: 'flex-end' },
+  price: { fontSize: 20, fontWeight: '800', color: C.primary },
+  perSeat: { fontSize: 12, color: C.textMuted, marginTop: 1 },
+  timeline: { marginTop: SP.xl },
+  stop: { flexDirection: 'row', alignItems: 'center', minHeight: 30 },
+  dotCol: { width: 24, alignItems: 'center', justifyContent: 'center' },
   dotFrom: {
     width: 14,
     height: 14,
@@ -1743,11 +1568,7 @@ const cardStyles = StyleSheet.create({
     borderColor: C.primary,
     backgroundColor: C.white,
   },
-  line: {
-    width: 2,
-    height: 34,
-    backgroundColor: C.line,
-  },
+  line: { width: 2, height: 30, backgroundColor: C.line },
   place: {
     flex: 1,
     fontSize: 16,
@@ -1755,34 +1576,10 @@ const cardStyles = StyleSheet.create({
     color: C.text,
     marginLeft: SP.sm,
   },
-  durationChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: SP.sm,
-    paddingHorizontal: SP.sm + 2,
-    paddingVertical: 3,
-    borderRadius: R.pill,
-    backgroundColor: C.greySoft,
-  },
-  durationText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: C.textMuted,
-    marginLeft: 4,
-  },
-  durationSpacer: {
-    height: 34,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: C.border,
-    marginTop: SP.lg,
-    marginBottom: SP.md,
-  },
-  pillRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
+  distanceTextWrap: { marginLeft: SP.sm, minHeight: 30, justifyContent: 'center' },
+  distanceText: { color: C.textMuted, fontSize: 12, fontWeight: '600' },
+  divider: { height: 1, backgroundColor: C.border, marginTop: SP.lg, marginBottom: SP.md },
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap' },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1793,12 +1590,75 @@ const cardStyles = StyleSheet.create({
     marginBottom: SP.sm,
     maxWidth: '100%',
   },
-  pillText: {
+  pillText: { fontSize: 13, fontWeight: '700', marginLeft: 5, flexShrink: 1 },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.background,
+    borderRadius: R.md,
+    paddingVertical: SP.md,
+    paddingHorizontal: SP.md,
+    marginTop: SP.xs,
+  },
+  activityItem: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  activityText: { color: C.text, fontSize: 12, fontWeight: '700', marginLeft: 6 },
+  activityDivider: { width: 1, height: 22, backgroundColor: C.border, marginHorizontal: SP.sm },
+  openingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: SP.md,
+    marginTop: SP.md,
+    borderTopWidth: 1,
+    borderTopColor: C.borderSubtle,
+  },
+  openingText: {
+    color: C.primary,
     fontSize: 13,
     fontWeight: '700',
-    marginLeft: 5,
-    flexShrink: 1,
+    marginLeft: SP.sm,
   },
+  preferenceSection: {
+    marginTop: SP.md,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.md,
+    overflow: 'hidden',
+  },
+  preferenceToggle: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SP.md,
+    backgroundColor: C.white,
+  },
+  preferenceToggleLeft: { flexDirection: 'row', alignItems: 'center' },
+  preferenceTitle: { color: C.text, fontSize: 13, fontWeight: '800', marginLeft: SP.sm },
+  preferenceCount: {
+    color: C.primary,
+    backgroundColor: C.tint,
+    overflow: 'hidden',
+    borderRadius: R.pill,
+    fontSize: 11,
+    fontWeight: '800',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    marginLeft: SP.sm,
+  },
+  preferenceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: SP.md,
+    paddingBottom: SP.md,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+    backgroundColor: C.background,
+  },
+  preferenceItem: { width: '50%', paddingTop: SP.md, paddingRight: SP.sm },
+  preferenceLabel: { color: C.textMuted, fontSize: 11, fontWeight: '600' },
+  preferenceValue: { color: C.text, fontSize: 13, fontWeight: '700', marginTop: 3 },
+  noPreferences: { color: C.textMuted, fontSize: 12, paddingTop: SP.md },
 });
 
 const styles = StyleSheet.create({
@@ -2115,6 +1975,15 @@ const styles = StyleSheet.create({
   },
   filterLabelSpaced: {
     marginTop: SP.xl,
+  },
+  filterUnavailable: {
+    color: C.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: SP.sm,
+  },
+  filterDisabled: {
+    opacity: 0.45,
   },
   segWrap: {
     flexDirection: 'row',

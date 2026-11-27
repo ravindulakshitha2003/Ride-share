@@ -1,4 +1,3 @@
-
 import { StyleSheet } from 'react-native';
 import { colors } from './colors';
 
@@ -80,7 +79,7 @@ const styles = StyleSheet.create({
   },
 
   priceLabel: {
-    color: '#817D9C',
+    color: colors.textSecondary,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1,
@@ -101,7 +100,7 @@ const styles = StyleSheet.create({
   seatsBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0EDFF',
+    backgroundColor: colors.tint,
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 9,
@@ -133,7 +132,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     backgroundColor: colors.primary,
     borderWidth: 3,
-    borderColor: '#E8E3FF',
+    borderColor: colors.border,
   },
 
   journeyLine: {
@@ -148,7 +147,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     backgroundColor: colors.accent,
     borderWidth: 3,
-    borderColor: '#FAE9FF',
+    borderColor: colors.lightPink,
   },
 
   journeyTextColumn: {
@@ -159,7 +158,7 @@ const styles = StyleSheet.create({
   locationLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#9692AD',
+    color: colors.muted,
     letterSpacing: 1,
     marginBottom: 5,
   },
@@ -180,7 +179,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#EFEDF8',
+    borderTopColor: colors.borderSubtle,
     paddingTop: 15,
     marginTop: 15,
   },
@@ -189,14 +188,14 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: '#F0EDFF',
+    backgroundColor: colors.tint,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 11,
   },
 
   departureLabel: {
-    color: '#9692AD',
+    color: colors.muted,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.8,
@@ -221,7 +220,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 13,
-    backgroundColor: '#F0EDFF',
+    backgroundColor: colors.tint,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 11,
@@ -239,7 +238,7 @@ const styles = StyleSheet.create({
 
   sectionSubtitle: {
     fontSize: 11,
-    color: '#9692AD',
+    color: colors.muted,
     marginTop: 4,
   },
 
@@ -251,7 +250,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 13,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0EEF8',
+    borderBottomColor: colors.borderSubtle,
   },
 
   detailLeft: {
@@ -262,7 +261,7 @@ const styles = StyleSheet.create({
   },
 
   detailLabel: {
-    color: '#817D9C',
+    color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '600',
     marginLeft: 9,
@@ -288,7 +287,7 @@ const styles = StyleSheet.create({
     width: 55,
     height: 55,
     borderRadius: 18,
-    backgroundColor: '#F0EDFF',
+    backgroundColor: colors.tint,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -308,7 +307,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: '#F0EDFF',
+    backgroundColor: colors.tint,
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 20,
@@ -337,7 +336,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 145,
     borderRadius: 14,
-    backgroundColor: '#F0EDFF',
+    backgroundColor: colors.tint,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 13,
@@ -354,7 +353,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: '#F0EDFF',
+    backgroundColor: colors.tint,
     paddingHorizontal: 11,
     paddingVertical: 7,
     borderRadius: 20,
@@ -372,7 +371,7 @@ const styles = StyleSheet.create({
     marginTop: 15,
     paddingTop: 13,
     borderTopWidth: 1,
-    borderTopColor: '#F0EEF8',
+    borderTopColor: colors.borderSubtle,
   },
 
   quickInfoItem: {
@@ -396,16 +395,16 @@ const styles = StyleSheet.create({
   vehicleDescription: {
     fontSize: 13,
     lineHeight: 21,
-    color: '#625E7D',
+    color: colors.secondary,
     marginTop: 10,
   },
 
   /* EXPAND BUTTON */
 
   expandButton: {
-    backgroundColor: '#EFECFF',
+    backgroundColor: colors.lightPurple,
     borderWidth: 1,
-    borderColor: '#D9D2FF',
+    borderColor: colors.border,
     borderRadius: 16,
     padding: 14,
     marginBottom: 15,
@@ -438,7 +437,7 @@ const styles = StyleSheet.create({
 
   expandSubtitle: {
     fontSize: 10,
-    color: '#77718F',
+    color: colors.muted,
     marginTop: 4,
   },
 
@@ -446,7 +445,7 @@ const styles = StyleSheet.create({
 
   locationTabs: {
     flexDirection: 'row',
-    backgroundColor: '#F0EEF8',
+    backgroundColor: colors.borderSubtle,
     borderRadius: 12,
     padding: 4,
     marginBottom: 14,
@@ -483,7 +482,7 @@ const styles = StyleSheet.create({
     height: 220,
     borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: '#EFECFF',
+    backgroundColor: colors.lightPurple,
   },
 
   map: {
@@ -499,19 +498,37 @@ const styles = StyleSheet.create({
   },
 
   fallbackText: {
-    color: '#817D9C',
+    color: colors.textSecondary,
     fontSize: 12,
     textAlign: 'center',
     marginTop: 9,
   },
 
   mapCaption: {
-    color: '#817D9C',
+    color: colors.textSecondary,
     fontSize: 11,
     marginTop: 10,
   },
 
   /* LOADING */
+
+  detailsLoadingBanner: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    backgroundColor: colors.tint,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
+  },
+
+  detailsLoadingText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 9,
+  },
 
   loadingContainer: {
     minHeight: 65,
@@ -521,7 +538,7 @@ const styles = StyleSheet.create({
   },
 
   loadingText: {
-    color: '#817D9C',
+    color: colors.textSecondary,
     fontSize: 12,
     marginLeft: 10,
   },
@@ -531,7 +548,7 @@ const styles = StyleSheet.create({
   errorNotice: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEF0F0',
+    backgroundColor: colors.errorSoft,
     padding: 14,
     borderRadius: 12,
     marginBottom: 15,
@@ -561,7 +578,7 @@ const styles = StyleSheet.create({
 
   errorMessage: {
     fontSize: 13,
-    color: '#817D9C',
+    color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 8,
   },
@@ -602,7 +619,7 @@ const styles = StyleSheet.create({
   },
 
   bookingPriceLabel: {
-    color: '#9692AD',
+    color: colors.muted,
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.7,
@@ -632,7 +649,7 @@ const styles = StyleSheet.create({
   },
 
   disabledBookButton: {
-    backgroundColor: '#9692AD',
+    backgroundColor: colors.muted,
   },
 
   bookButtonText: {
