@@ -1,12 +1,12 @@
 /**
  * addVehical.jsx
  * ---------------------------------------------------------------------------
- * "Add Vehicle" wizard + "My Vehicles" list + details screen.
+ * "Add Vehicle" wizard + success screen.
  * PLACE AT:   app/addVehical.jsx   (Expo Router route: /addVehical)
  * Colours:    imported from ../../theme/colors  (adjust the path if needed)
  *
  * INSTALL (only what is missing):
- *   npx expo install expo-linear-gradient expo-image-picker expo-document-picker \
+ *   npx expo install expo-linear-gradient expo-image-picker \
  *     expo-haptics @react-native-community/datetimepicker react-native-safe-area-context \
  *     @expo/vector-icons
  */
@@ -44,12 +44,13 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { colors } from '../../theme/colors';
+import client from '../../api/client';
+import { useNotifications } from '../../context/notificationContext';
 
 /* ===========================================================================
  * 1. THEME TOKENS  (all colours come from theme/colors.js)
@@ -136,36 +137,21 @@ function useReducedMotion() {
 }
 
 /* ===========================================================================
- * 3. API  (real backend - set the URLs and match the endpoints to yours)
- * ========================================================================= */
-const API_BASE_URL = 'http://localhost:4001/api';
-const FILES_BASE_URL = 'https://your-cdn.example.com'; // where fileKey files are served from
-
-let AUTH_TOKEN = null; // set from the `authToken` prop of the module
-
-async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-  let body = null;
-  try {
-    body = await res.json();
-  } catch (e) {
-    /* empty body */
-  }
-  if (!res.ok) {
-    const err = new Error((body && body.message) || 'Something went wrong. Please try again.');
-    err.code = body && body.code;
-    err.status = res.status;
-    throw err;
-  }
-  return body;
-}
+ * 3. API
+ * Uses the existing Axios client. It automatically attaches the SecureStore token.
+ * Backend router: /api/vehicles
+ * =========================================================================== */
+const api = {
+  async listVehicles() {
+    const response = await client.get('/api/vehicles/me');
+    const data = response.data;
+    return Array.isArray(data) ? data : (data?.vehicles || data?.data || []);
+  },
+  async createVehicle(formData) {
+    const response = await client.post('/api/vehicles', formData);
+    return response.data?.vehicle || response.data?.data || response.data;
+  },
+};
 
 const MAKES = {
   Toyota: ['Axio', 'Aqua', 'Prius', 'HiAce', 'Corolla', 'Land Cruiser'],
@@ -180,63 +166,9 @@ const MAKES = {
   'Mercedes-Benz': ['C-Class', 'E-Class', 'GLC'],
 };
 
-const api = {
-  async listVehicles(ownerId) {
-    const data = await request(`/vehicles?ownerId=${encodeURIComponent(ownerId)}`);
-    return Array.isArray(data) ? data : (data && data.vehicles) || [];
-  },
-  async isPlateTaken(plateNo) {
-    const data = await request(`/vehicles/check-plate?plateNo=${encodeURIComponent(plateNo)}`);
-    return !!(data && data.taken);
-  },
-  async createVehicle(payload, ownerId) {
-    const data = await request('/vehicles', {
-      method: 'POST',
-      body: JSON.stringify({ ...payload, ownerId }),
-    });
-    return (data && data.vehicle) || data;
-  },
-  // Multipart upload with progress. Server should answer { fileKey }.
-  uploadFile(localUri, kind, onProgress, mimeType, fileName) {
-    return new Promise((resolve, reject) => {
-      const isPhoto = ['front', 'side', 'extra'].includes(kind);
-      const ext = (localUri.split('?')[0].split('.').pop() || (isPhoto ? 'jpg' : 'pdf')).slice(0, 4);
-      const form = new FormData();
-      form.append('kind', kind);
-      form.append('file', {
-        uri: localUri,
-        name: fileName || `${kind}.${ext}`,
-        type: mimeType || (isPhoto ? 'image/jpeg' : 'application/pdf'),
-      });
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${API_BASE_URL}/uploads`);
-      if (AUTH_TOKEN) xhr.setRequestHeader('Authorization', `Bearer ${AUTH_TOKEN}`);
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
-      };
-      xhr.onload = () => {
-        try {
-          const body = JSON.parse(xhr.responseText);
-          if (xhr.status >= 200 && xhr.status < 300 && body.fileKey) resolve({ fileKey: body.fileKey });
-          else reject(new Error(body.message || 'Upload failed'));
-        } catch (e) {
-          reject(new Error('Upload failed'));
-        }
-      };
-      xhr.onerror = () => reject(new Error('Network error'));
-      xhr.send(form);
-    });
-  },
-  getFileUrl(fileKey) {
-    if (!fileKey) return null;
-    if (/^https?:\/\//.test(fileKey)) return fileKey;
-    return `${FILES_BASE_URL}/${fileKey}`;
-  },
-};
-
 /* ===========================================================================
  * 4. FORM STATE
- * ========================================================================= */
+ * =========================================================================== */
 const initialForm = {
   type: '',
   make: '',
@@ -245,35 +177,21 @@ const initialForm = {
   colourOther: '',
   year: CURRENT_YEAR,
   plateNo: '',
+  crNumber: '',
   seats: 4,
   hasAC: true,
   luggage: 'Available',
-  docs: { registration: null, revenueLicence: null, insurance: null },
-  photos: { front: null, side: null, e0: null, e1: null, e2: null, e3: null },
+  revenueLicenceExpiry: '',
+  insuranceExpiry: '',
+  vehiclePhoto: null,
 };
 
 function formReducer(state, action) {
   switch (action.type) {
     case 'patch':
       return { ...state, ...action.patch };
-    case 'doc':
-      return {
-        ...state,
-        docs: {
-          ...state.docs,
-          [action.key]: action.patch === null ? null : { ...(state.docs[action.key] || {}), ...action.patch },
-        },
-      };
-    case 'photo':
-      return {
-        ...state,
-        photos: {
-          ...state.photos,
-          [action.key]: action.patch === null ? null : { ...(state.photos[action.key] || {}), ...action.patch },
-        },
-      };
     case 'reset':
-      return initialForm;
+      return { ...initialForm };
     default:
       return state;
   }
@@ -281,51 +199,27 @@ function formReducer(state, action) {
 
 /* ===========================================================================
  * 5. VALIDATION
- * ========================================================================= */
-const DOC_LABELS = {
-  registration: 'Registration document',
-  revenueLicence: 'Revenue licence',
-  insurance: 'Insurance',
-};
-
-function validateStep(step, f, plateState) {
+ * =========================================================================== */
+function validateStep(step, f) {
   const e = {};
-  if (step === 1) {
-    if (!f.type) e.type = 'Choose a vehicle type';
-  }
+  if (step === 1 && !f.type) e.type = 'Choose a vehicle type';
   if (step === 2) {
-    if (!f.make.trim()) e.make = 'Enter the make';
+    if (!f.make.trim()) e.make = 'Enter the brand';
     if (!f.model.trim()) e.model = 'Enter the model';
     if (!f.colour) e.colour = 'Pick a colour';
     else if (f.colour === 'Other' && !f.colourOther.trim()) e.colour = 'Type the colour name';
-    if (!Number.isInteger(f.year) || f.year < MIN_YEAR || f.year > CURRENT_YEAR)
-      e.year = `Year must be ${MIN_YEAR} to ${CURRENT_YEAR}`;
+    if (!Number.isInteger(Number(f.year)) || Number(f.year) < MIN_YEAR || Number(f.year) > CURRENT_YEAR) e.year = `Year must be ${MIN_YEAR} to ${CURRENT_YEAR}`;
   }
   if (step === 3) {
-    if (!f.plateNo) e.plateNo = 'Enter the plate number';
-    else if (plateState === 'invalid') e.plateNo = 'Use 2 to 10 letters, numbers or dashes';
-    else if (plateState === 'taken') e.plateNo = 'This plate is already registered';
-    else if (plateState !== 'free') e.plateNo = 'Checking plate number...';
-    if (!Number.isInteger(f.seats) || f.seats < 1 || f.seats > 14) e.seats = 'Seats must be 1 to 14';
+    if (!f.plateNo.trim()) e.plateNo = 'Enter the plate number';
+    if (!f.crNumber.trim()) e.crNumber = 'Enter the CR number';
+    if (!Number.isInteger(Number(f.seats)) || Number(f.seats) < 1 || Number(f.seats) > 14) e.seats = 'Seats must be 1 to 14';
   }
   if (step === 4) {
-    Object.keys(DOC_LABELS).forEach((k) => {
-      const d = f.docs[k];
-      if (!d || d.uploading || !d.fileKey) {
-        e[k] = d && d.uploading ? 'Uploading...' : `Upload your ${DOC_LABELS[k].toLowerCase()}`;
-      } else if (k !== 'registration') {
-        if (!d.expiry) e[k] = 'Pick an expiry date';
-        else if (daysUntil(d.expiry) <= 0) e[k] = 'Expiry must be a future date';
-      }
-    });
+    if (!f.revenueLicenceExpiry) e.revenueLicenceExpiry = 'Select the revenue licence expiry date';
+    if (!f.insuranceExpiry) e.insuranceExpiry = 'Select the insurance expiry date';
   }
-  if (step === 5) {
-    if (!f.photos.front || !f.photos.front.fileKey) e.front = 'Add a front photo';
-    if (!f.photos.side || !f.photos.side.fileKey) e.side = 'Add a side photo';
-    Object.values(f.photos).forEach((p) => {
-      if (p && p.uploading) e.uploading = 'Photos are still uploading...';
-    });
-  }
+  if (step === 5 && !f.vehiclePhoto?.uri) e.vehiclePhoto = 'Add a vehicle photo';
   return e;
 }
 
@@ -782,54 +676,24 @@ function Step2Details({ form, set, errors }) {
   );
 }
 
-function PlateIndicator({ state }) {
-  if (state === 'checking') return <ActivityIndicator size="small" color={C.primary} />;
-  if (state === 'free') return <Icon name="check-circle" size={22} color={C.status.approved} />;
-  if (state === 'taken' || state === 'invalid') return <Icon name="close-circle" size={22} color={C.danger} />;
-  return null;
-}
 
-function Step3PlateComfort({ form, set, errors, plateState, submitError }) {
-  const msg =
-    plateState === 'free'
-      ? 'Plate number is available'
-      : plateState === 'checking'
-      ? 'Checking...'
-      : null;
+function Step3PlateComfort({ form, set, errors, submitError }) {
   return (
     <>
-      <StepHeader title="Plate and comfort" subtitle="Riders see these details first." />
+      <StepHeader title="Registration and comfort" subtitle="Add the registration details and passenger features." />
       <Card>
-        <Field
-          label="Plate number"
-          value={form.plateNo}
-          onChangeText={(t) => set({ plateNo: t.toUpperCase().replace(/\s+/g, '') })}
-          placeholder="e.g. ABC1234"
-          autoCapitalize="characters"
-          maxLength={10}
-          error={errors.plateNo || submitError}
-          right={<PlateIndicator state={plateState} />}
-          a11yHint="Letters and numbers only, no spaces"
-        />
-        {msg ? <Text style={[S.muted, { marginTop: -SP.sm }]}>{msg}</Text> : null}
-        {submitError ? (
-          <Text style={S.error} accessibilityLiveRegion="assertive">
-            {submitError}
-          </Text>
-        ) : null}
+        <Field label="Plate number" value={form.plateNo} onChangeText={(t) => set({ plateNo: t.toUpperCase().replace(/\s+/g, '') })} placeholder="e.g. ABC1234" autoCapitalize="characters" maxLength={12} error={errors.plateNo} />
+        <Field label="CR number" value={form.crNumber} onChangeText={(t) => set({ crNumber: t.trimStart() })} placeholder="Enter the CR number" autoCapitalize="characters" maxLength={40} error={errors.crNumber} />
+        {submitError ? <Text style={S.error}>{submitError}</Text> : null}
       </Card>
-
       <Card style={{ marginTop: SP.lg }}>
         <Text style={S.label}>Passenger seats</Text>
-        <SeatStepper value={form.seats} onChange={(n) => set({ seats: n })} />
+        <SeatStepper value={Number(form.seats)} onChange={(n) => set({ seats: n })} />
       </Card>
-
       <Card style={{ marginTop: SP.lg }}>
         <View style={[S.row, { justifyContent: 'space-between' }]}>
           <View style={S.row}>
-            <View style={S.iconTile}>
-              <Icon name="snowflake" size={24} color={C.primary} />
-            </View>
+            <View style={S.iconTile}><Icon name="snowflake" size={24} color={C.primary} /></View>
             <View style={{ marginLeft: SP.md }}>
               <Text style={S.rowTitle}>Air conditioning</Text>
               <Text style={S.muted}>{form.hasAC ? 'Available' : 'Not available'}</Text>
@@ -838,245 +702,88 @@ function Step3PlateComfort({ form, set, errors, plateState, submitError }) {
           <Toggle value={form.hasAC} onChange={(v) => set({ hasAC: v })} label="Air conditioning" />
         </View>
       </Card>
-
       <Card style={{ marginTop: SP.lg }}>
         <Text style={S.label}>Luggage space</Text>
         <Segmented options={['Available', 'Limited', 'Unavailable']} value={form.luggage} onChange={(v) => set({ luggage: v })} />
       </Card>
-    </>
-  );
-}
-
-function UploadCard({ title, doc, needsExpiry, onPick, onRemove, onExpiry, icon }) {
-  const [showPicker, setShowPicker] = useState(false);
-  const tomorrow = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d;
-  }, []);
-  const expiryDate = doc && doc.expiry ? new Date(`${doc.expiry}T00:00:00`) : tomorrow;
-  const done = doc && doc.fileKey && !doc.uploading;
-
-  const onDate = (event, date) => {
-    if (Platform.OS === 'android') setShowPicker(false);
-    if (event.type === 'dismissed' || !date) return;
-    onExpiry(toISO(date));
-  };
-
-  return (
-    <Card style={{ marginBottom: SP.lg }}>
-      <View style={[S.row, { justifyContent: 'space-between' }]}>
-        <View style={S.row}>
-          <View style={S.iconTile}>
-            <Icon name={icon} size={22} color={C.primary} />
-          </View>
-          <Text style={[S.rowTitle, { marginLeft: SP.md }]}>{title}</Text>
-        </View>
-        {done ? <PopCheck /> : null}
-      </View>
-
-      {!doc ? (
-        <Pressable onPress={onPick} accessibilityRole="button" accessibilityLabel={`Upload ${title}`} style={S.dropZone}>
-          <Icon name="cloud-upload-outline" size={28} color={C.primary} />
-          <Text style={S.dropText}>Tap to upload PDF or image</Text>
-        </Pressable>
-      ) : (
-        <View style={S.fileBox}>
-          <View style={[S.row, { justifyContent: 'space-between' }]}>
-            <View style={{ flex: 1, paddingRight: SP.md }}>
-              <Text style={S.fileName} numberOfLines={1}>
-                {doc.name}
-              </Text>
-              <Text style={S.muted}>{doc.uploading ? `Uploading ${doc.progress || 0}%` : fmtSize(doc.size) || 'Uploaded'}</Text>
-            </View>
-            <View style={S.row}>
-              <Pressable onPress={onPick} accessibilityRole="button" accessibilityLabel={`Replace ${title}`} style={S.miniBtn}>
-                <Icon name="swap-horizontal" size={18} color={C.primary} />
-              </Pressable>
-              <Pressable onPress={onRemove} accessibilityRole="button" accessibilityLabel={`Remove ${title}`} style={[S.miniBtn, { marginLeft: SP.sm }]}>
-                <Icon name="trash-can-outline" size={18} color={C.danger} />
-              </Pressable>
-            </View>
-          </View>
-          {doc.uploading ? (
-            <View style={[S.progressTrack, { marginTop: SP.md }]}>
-              <View style={[S.progressFill, { width: `${doc.progress || 0}%` }]} />
-            </View>
-          ) : null}
-        </View>
-      )}
-
-      {needsExpiry && doc ? (
-        <View style={{ marginTop: SP.lg }}>
-          <Text style={S.label}>Expiry date</Text>
-          <Pressable
-            onPress={() => setShowPicker(true)}
-            accessibilityRole="button"
-            accessibilityLabel={`Pick expiry date for ${title}`}
-            style={S.input}
-          >
-            <Text style={[S.inputText, !doc.expiry && { color: C.textMuted }]}>{doc.expiry || 'Select date'}</Text>
-            <Icon name="calendar-month-outline" size={22} color={C.primary} />
-          </Pressable>
-          {doc.expiry && daysUntil(doc.expiry) <= 0 ? (
-            <Text style={S.error} accessibilityLiveRegion="polite">
-              Expiry must be a future date
-            </Text>
-          ) : null}
-          {showPicker && (
-            <View>
-              <DateTimePicker
-                value={expiryDate}
-                mode="date"
-                minimumDate={tomorrow}
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={onDate}
-              />
-              {Platform.OS === 'ios' && (
-                <Pressable onPress={() => setShowPicker(false)} style={S.linkBtn} accessibilityRole="button" accessibilityLabel="Done">
-                  <Text style={S.link}>Done</Text>
-                </Pressable>
-              )}
-            </View>
-          )}
-        </View>
-      ) : null}
-    </Card>
-  );
-}
-
-function Step4Documents({ form, dispatch, errors }) {
-  const pick = async (key) => {
-    try {
-      const res = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'image/*'], copyToCacheDirectory: true });
-      if (res.canceled || !res.assets || !res.assets[0]) return;
-      const a = res.assets[0];
-      dispatch({
-        type: 'doc',
-        key,
-        patch: { name: a.name, size: a.size, uri: a.uri, progress: 0, fileKey: null, uploading: true },
-      });
-      const { fileKey } = await api.uploadFile(
-        a.uri,
-        key,
-        (p) => dispatch({ type: 'doc', key, patch: { progress: p } }),
-        a.mimeType,
-        a.name
-      );
-      dispatch({ type: 'doc', key, patch: { fileKey, uploading: false, progress: 100 } });
-    } catch (e) {
-      dispatch({ type: 'doc', key, patch: null });
-      Alert.alert('Upload failed', 'Could not upload that file. Please try again.');
-    }
-  };
-  const cards = [
-    { key: 'registration', title: 'Registration document', icon: 'file-document-outline', exp: false },
-    { key: 'revenueLicence', title: 'Revenue licence', icon: 'card-account-details-outline', exp: true },
-    { key: 'insurance', title: 'Insurance', icon: 'shield-check-outline', exp: true },
-  ];
-  return (
-    <>
-      <StepHeader title="Upload documents" subtitle="Clear, readable copies help approval go faster." />
-      {cards.map((c) => (
-        <UploadCard
-          key={c.key}
-          title={c.title}
-          icon={c.icon}
-          doc={form.docs[c.key]}
-          needsExpiry={c.exp}
-          onPick={() => pick(c.key)}
-          onRemove={() => dispatch({ type: 'doc', key: c.key, patch: null })}
-          onExpiry={(iso) => dispatch({ type: 'doc', key: c.key, patch: { expiry: iso } })}
-        />
-      ))}
       <Needed errors={errors} />
     </>
   );
 }
 
-function PhotoSlot({ label, photo, required, onPress, onRemove }) {
+function ExpiryField({ label, value, onChange, error }) {
+  const [showPicker, setShowPicker] = useState(false);
+  const initialDate = value ? new Date(`${value}T00:00:00`) : new Date();
+  const onDate = (event, date) => {
+    if (Platform.OS === 'android') setShowPicker(false);
+    if (event.type === 'dismissed' || !date) return;
+    onChange(toISO(date));
+  };
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={photo ? `Replace ${label} photo` : `Add ${label} photo`}
-      style={S.photoSlot}
-    >
-      {photo ? (
-        <>
-          <Image source={{ uri: photo.uri }} style={S.photoImg} />
-          {photo.uploading ? (
-            <View style={S.photoOverlay}>
-              <ActivityIndicator color={C.white} />
-              <Text style={S.photoPct}>{photo.progress || 0}%</Text>
-            </View>
-          ) : (
-            <View style={S.photoCheck}>
-              <PopCheck size={24} />
-            </View>
-          )}
-          <Pressable onPress={onRemove} accessibilityRole="button" accessibilityLabel={`Remove ${label} photo`} style={S.photoRemove}>
-            <Icon name="close" size={16} color={C.white} />
-          </Pressable>
-        </>
-      ) : (
-        <View style={S.photoEmpty}>
-          <Icon name="camera-plus-outline" size={30} color={C.primary} />
-          <Text style={S.photoLabel}>{label}</Text>
-          <Text style={S.muted}>{required ? 'Required' : 'Optional'}</Text>
-        </View>
-      )}
-    </Pressable>
+    <View style={{ marginBottom: SP.lg }}>
+      <Text style={S.label}>{label}</Text>
+      <Pressable onPress={() => setShowPicker(true)} style={S.input} accessibilityRole="button">
+        <Text style={[S.inputText, !value && { color: C.textMuted }]}>{value || 'Select expiry date'}</Text>
+        <Icon name="calendar-month-outline" size={22} color={C.primary} />
+      </Pressable>
+      {error ? <Text style={S.error}>{error}</Text> : null}
+      {showPicker ? <DateTimePicker value={initialDate} mode="date" display={Platform.OS === 'ios' ? 'spinner' : 'default'} onChange={onDate} /> : null}
+      {showPicker && Platform.OS === 'ios' ? <Pressable onPress={() => setShowPicker(false)} style={S.linkBtn}><Text style={S.link}>Done</Text></Pressable> : null}
+    </View>
   );
 }
 
-function Step5Photos({ form, dispatch, errors }) {
-  const run = async (slot, uri) => {
-    const kind = slot === 'front' || slot === 'side' ? slot : 'extra';
-    dispatch({ type: 'photo', key: slot, patch: { uri, progress: 0, fileKey: null, uploading: true } });
-    try {
-      const { fileKey } = await api.uploadFile(uri, kind, (p) => dispatch({ type: 'photo', key: slot, patch: { progress: p } }));
-      dispatch({ type: 'photo', key: slot, patch: { fileKey, uploading: false, progress: 100 } });
-    } catch (e) {
-      dispatch({ type: 'photo', key: slot, patch: null });
-      Alert.alert('Upload failed', 'Could not upload that photo. Please try again.');
-    }
-  };
-  const fromGallery = async (slot) => {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
-    if (!res.canceled && res.assets && res.assets[0]) run(slot, res.assets[0].uri);
-  };
-  const fromCamera = async (slot) => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Camera permission needed', 'Allow camera access in Settings, or choose from your gallery.');
-      return;
-    }
-    const res = await ImagePicker.launchCameraAsync({ quality: 0.7 });
-    if (!res.canceled && res.assets && res.assets[0]) run(slot, res.assets[0].uri);
-  };
-  const choose = (slot) =>
-    Alert.alert('Add photo', 'Choose a source', [
-      { text: 'Camera', onPress: () => fromCamera(slot) },
-      { text: 'Gallery', onPress: () => fromGallery(slot) },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  const remove = (slot) => dispatch({ type: 'photo', key: slot, patch: null });
-
-  const extras = ['e0', 'e1', 'e2', 'e3'];
+function Step4Expiry({ form, set, errors }) {
   return (
     <>
-      <StepHeader title="Add photos" subtitle="Front and side views are required." />
-      <View style={S.photoRow}>
-        <PhotoSlot label="Front" required photo={form.photos.front} onPress={() => choose('front')} onRemove={() => remove('front')} />
-        <PhotoSlot label="Side" required photo={form.photos.side} onPress={() => choose('side')} onRemove={() => remove('side')} />
-      </View>
-      <Text style={[S.label, { marginTop: SP.xl }]}>More photos (optional)</Text>
-      <View style={S.photoGrid}>
-        {extras.map((k, i) => (
-          <PhotoSlot key={k} label={`Extra ${i + 1}`} photo={form.photos[k]} onPress={() => choose(k)} onRemove={() => remove(k)} />
-        ))}
-      </View>
+      <StepHeader title="Licence and insurance" subtitle="Enter the expiry dates for your vehicle documents." />
+      <Card>
+        <ExpiryField label="Revenue licence expiry" value={form.revenueLicenceExpiry} onChange={(value) => set({ revenueLicenceExpiry: value })} error={errors.revenueLicenceExpiry} />
+        <ExpiryField label="Insurance expiry" value={form.insuranceExpiry} onChange={(value) => set({ insuranceExpiry: value })} error={errors.insuranceExpiry} />
+      </Card>
+      <Needed errors={errors} />
+    </>
+  );
+}
+
+function Step5Photos({ form, set, errors }) {
+  const choose = () => Alert.alert('Add vehicle photo', 'Choose a source', [
+    { text: 'Camera', onPress: async () => {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Camera permission needed', 'Allow camera access in Settings, or choose from your gallery.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.75 });
+      if (!result.canceled && result.assets?.[0]) set({ vehiclePhoto: result.assets[0] });
+    } },
+    { text: 'Gallery', onPress: async () => {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.75 });
+      if (!result.canceled && result.assets?.[0]) set({ vehiclePhoto: result.assets[0] });
+    } },
+    { text: 'Cancel', style: 'cancel' },
+  ]);
+  return (
+    <>
+      <StepHeader title="Add vehicle photo" subtitle="Upload one clear photo of your vehicle." />
+      <Card>
+        <Pressable onPress={choose} style={S.photoSlot} accessibilityRole="button" accessibilityLabel="Choose vehicle photo">
+          {form.vehiclePhoto?.uri ? (
+            <Image source={{ uri: form.vehiclePhoto.uri }} style={S.photoImg} />
+          ) : (
+            <View style={S.photoEmpty}>
+              <Icon name="camera-plus-outline" size={34} color={C.primary} />
+              <Text style={S.photoLabel}>Vehicle photo</Text>
+              <Text style={S.muted}>Tap to take or select a photo</Text>
+            </View>
+          )}
+        </Pressable>
+        {form.vehiclePhoto?.uri ? (
+          <Pressable onPress={() => set({ vehiclePhoto: null })} style={[S.linkBtn, { alignSelf: 'flex-end' }]}>
+            <Text style={[S.link, { color: C.danger }]}>Remove photo</Text>
+          </Pressable>
+        ) : null}
+      </Card>
       <Needed errors={errors} />
     </>
   );
@@ -1108,43 +815,23 @@ const KV = ({ k, v }) => (
 
 function Step6Review({ form, goEdit, submitError }) {
   const colour = form.colour === 'Other' ? form.colourOther : form.colour;
-  const photos = Object.values(form.photos).filter((p) => p && p.fileKey);
   return (
     <>
-      <StepHeader title="Review and submit" subtitle="Check everything before sending it for approval." />
-      <ReviewSection title="Type" icon="car-info" onEdit={() => goEdit(1)}>
-        <KV k="Vehicle type" v={form.type} />
-      </ReviewSection>
+      <StepHeader title="Review and submit" subtitle="Check your vehicle details before submitting." />
+      <ReviewSection title="Type" icon="car-info" onEdit={() => goEdit(1)}><KV k="Vehicle type" v={form.type} /></ReviewSection>
       <ReviewSection title="Details" icon="card-text-outline" onEdit={() => goEdit(2)}>
-        <KV k="Make" v={form.make} />
-        <KV k="Model" v={form.model} />
-        <KV k="Colour" v={colour} />
-        <KV k="Year" v={String(form.year)} />
+        <KV k="Brand" v={form.make} /><KV k="Model" v={form.model} /><KV k="Colour" v={colour} /><KV k="Year" v={String(form.year)} />
       </ReviewSection>
-      <ReviewSection title="Plate and comfort" icon="license" onEdit={() => goEdit(3)}>
-        <KV k="Plate" v={form.plateNo} />
-        <KV k="Seats" v={String(form.seats)} />
-        <KV k="Air conditioning" v={form.hasAC ? 'Yes' : 'No'} />
-        <KV k="Luggage" v={form.luggage} />
+      <ReviewSection title="Registration and comfort" icon="license" onEdit={() => goEdit(3)}>
+        <KV k="Plate number" v={form.plateNo} /><KV k="CR number" v={form.crNumber} /><KV k="Passenger seats" v={String(form.seats)} /><KV k="Air conditioning" v={form.hasAC ? 'Yes' : 'No'} /><KV k="Luggage space" v={form.luggage} />
       </ReviewSection>
-      <ReviewSection title="Documents" icon="file-document-multiple-outline" onEdit={() => goEdit(4)}>
-        <KV k="Registration" v={form.docs.registration ? form.docs.registration.name : '-'} />
-        <KV k="Revenue licence" v={form.docs.revenueLicence ? `${form.docs.revenueLicence.name}\nexpires ${form.docs.revenueLicence.expiry}` : '-'} />
-        <KV k="Insurance" v={form.docs.insurance ? `${form.docs.insurance.name}\nexpires ${form.docs.insurance.expiry}` : '-'} />
+      <ReviewSection title="Expiry dates" icon="calendar-check-outline" onEdit={() => goEdit(4)}>
+        <KV k="Revenue licence" v={form.revenueLicenceExpiry} /><KV k="Insurance" v={form.insuranceExpiry} />
       </ReviewSection>
-      <ReviewSection title="Photos" icon="image-multiple-outline" onEdit={() => goEdit(5)}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {photos.map((p, i) => (
-            <Image key={p.fileKey + i} source={{ uri: p.uri }} style={S.reviewThumb} />
-          ))}
-        </ScrollView>
+      <ReviewSection title="Vehicle photo" icon="image-outline" onEdit={() => goEdit(5)}>
+        {form.vehiclePhoto?.uri ? <Image source={{ uri: form.vehiclePhoto.uri }} style={S.reviewThumb} /> : <Text style={S.muted}>No photo selected</Text>}
       </ReviewSection>
-      {submitError ? (
-        <View style={S.alert} accessibilityLiveRegion="assertive">
-          <Icon name="alert-circle-outline" size={20} color={C.danger} />
-          <Text style={S.alertText}>{submitError}</Text>
-        </View>
-      ) : null}
+      {submitError ? <View style={S.alert} accessibilityLiveRegion="assertive"><Icon name="alert-circle-outline" size={20} color={C.danger} /><Text style={S.alertText}>{submitError}</Text></View> : null}
     </>
   );
 }
@@ -1218,7 +905,7 @@ function SuccessScreen({ onAddAnother, onViewVehicles }) {
           Submitted for review
         </Text>
         <Text style={[S.sub, { textAlign: 'center', marginVertical: SP.md }]}>
-          We will check your documents and let you know once your vehicle is approved.
+          Your vehicle details have been submitted. We will notify you when its status changes.
         </Text>
         <StatusBadge status="Pending" />
         <View style={{ width: '100%', maxWidth: MAX_W, marginTop: SP.xxxl }}>
@@ -1233,46 +920,19 @@ function SuccessScreen({ onAddAnother, onViewVehicles }) {
 /* ===========================================================================
  * 9. WIZARD SHELL
  * ========================================================================= */
-function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
+function Wizard({ onCreated, onViewVehicles, onExit }) {
+  const { refresh: refreshNotifications } = useNotifications();
   const [form, dispatch] = useReducer(formReducer, initialForm);
   const set = useCallback((patch) => dispatch({ type: 'patch', patch }), []);
   const [step, setStep] = useState(1);
   const [dir, setDir] = useState(1);
   const [editing, setEditing] = useState(false);
-  const [plateState, setPlateState] = useState('idle');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [done, setDone] = useState(false);
   const bottomSpace = useBottomSpace();
 
-  // Debounced plate uniqueness check
-  useEffect(() => {
-    const p = form.plateNo;
-    if (!p) {
-      setPlateState('idle');
-      return undefined;
-    }
-    if (!PLATE_RE.test(p)) {
-      setPlateState('invalid');
-      return undefined;
-    }
-    setPlateState('checking');
-    let alive = true;
-    const t = setTimeout(async () => {
-      try {
-        const taken = await api.isPlateTaken(p);
-        if (alive) setPlateState(taken ? 'taken' : 'free');
-      } catch (e) {
-        if (alive) setPlateState('idle');
-      }
-    }, 500);
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [form.plateNo]);
-
-  const errors = useMemo(() => validateStep(step, form, plateState), [step, form, plateState]);
+  const errors = useMemo(() => validateStep(step, form), [step, form]);
   const valid = Object.keys(errors).length === 0;
 
   const go = (n, d) => {
@@ -1302,46 +962,44 @@ function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
 
   const submit = async () => {
     for (let s = 1; s <= 5; s += 1) {
-      if (Object.keys(validateStep(s, form, s === 3 ? 'free' : plateState)).length) {
+      if (Object.keys(validateStep(s, form)).length) {
         go(s, -1);
         return;
       }
     }
     setSubmitting(true);
     setSubmitError('');
-    const payload = {
-      type: form.type,
-      make: form.make.trim(),
-      model: form.model.trim(),
-      colour: form.colour === 'Other' ? form.colourOther.trim() : form.colour,
-      year: form.year,
-      plateNo: form.plateNo,
-      seats: form.seats,
-      hasAC: form.hasAC,
-      luggage: form.luggage,
-      documents: {
-        registration: { fileKey: form.docs.registration.fileKey },
-        revenueLicence: { fileKey: form.docs.revenueLicence.fileKey, expiry: form.docs.revenueLicence.expiry },
-        insurance: { fileKey: form.docs.insurance.fileKey, expiry: form.docs.insurance.expiry },
-      },
-      photoKeys: [
-        form.photos.front.fileKey,
-        form.photos.side.fileKey,
-        ...['e0', 'e1', 'e2', 'e3'].map((k) => form.photos[k]).filter((p) => p && p.fileKey).map((p) => p.fileKey),
-      ],
-    };
+    const formData = new FormData();
+    formData.append('vehicleType', form.type);
+    formData.append('brand', form.make.trim());
+    formData.append('model', form.model.trim());
+    formData.append('year', String(form.year));
+    formData.append('color', form.colour === 'Other' ? form.colourOther.trim() : form.colour);
+    formData.append('plateNumber', form.plateNo.trim().toUpperCase());
+    formData.append('crNumber', form.crNumber.trim());
+    formData.append('passengerSeats', String(form.seats));
+    formData.append('airConditioning', String(form.hasAC));
+    formData.append('luggageSpace', form.luggage);
+    formData.append('revenueLicenceExpiry', form.revenueLicenceExpiry);
+    formData.append('insuranceExpiry', form.insuranceExpiry);
+    const photo = form.vehiclePhoto;
+    if (photo?.uri) {
+      const uriParts = photo.uri.split('/');
+      const name = photo.fileName || uriParts[uriParts.length - 1] || `vehicle-${Date.now()}.jpg`;
+      formData.append('vehiclePhoto', {
+        uri: photo.uri,
+        name,
+        type: photo.mimeType || 'image/jpeg',
+      });
+    }
     try {
-      const vehicle = await api.createVehicle(payload, ownerId);
+      const vehicle = await api.createVehicle(formData);
       onCreated(vehicle);
+    
       setDone(true);
+      refreshNotifications().catch(() => {});
     } catch (e) {
-      if (e.code === 'DUPLICATE_PLATE') {
-        setPlateState('taken');
-        setSubmitError(e.message);
-        go(3, -1);
-      } else {
-        setSubmitError(e.message || 'Something went wrong. Please try again.');
-      }
+      setSubmitError(e.message || 'Something went wrong. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -1352,14 +1010,13 @@ function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
     setStep(1);
     setDir(1);
     setEditing(false);
-    setPlateState('idle');
     setSubmitError('');
     setDone(false);
   };
 
   if (done) return <SuccessScreen onAddAnother={reset} onViewVehicles={onViewVehicles} />;
 
-  const stepProps = { form, set, dispatch, errors, plateState, submitError, goEdit };
+  const stepProps = { form, set, dispatch, errors, submitError, goEdit };
   const isReview = step === 6;
 
   return (
@@ -1387,7 +1044,7 @@ function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
                 {step === 1 && <Step1Type {...stepProps} />}
                 {step === 2 && <Step2Details {...stepProps} />}
                 {step === 3 && <Step3PlateComfort {...stepProps} />}
-                {step === 4 && <Step4Documents {...stepProps} />}
+                {step === 4 && <Step4Expiry {...stepProps} />}
                 {step === 5 && <Step5Photos {...stepProps} />}
                 {step === 6 && <Step6Review {...stepProps} />}
               </ScrollView>
@@ -1414,330 +1071,33 @@ function Wizard({ ownerId, onCreated, onViewVehicles, onExit }) {
 }
 
 /* ===========================================================================
- * 10. MY VEHICLES (list + details)
+ * 10. ADD VEHICLE PAGE
+ * Only the add-vehicle wizard and its success screen live on this route.
+ * The success screen opens the separate /vehicle page.
  * ========================================================================= */
-const FILTERS = ['All', 'Pending', 'Approved', 'Rejected', 'Inactive', 'Expired'];
-
-function Skeleton() {
-  const o = useRef(new Animated.Value(0.4)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(o, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(o, { toValue: 0.4, duration: 700, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [o]);
-  return (
-    <Animated.View style={[S.card, { opacity: o, marginBottom: SP.lg }]}>
-      <View style={[S.skel, { height: 150 }]} />
-      <View style={[S.skel, { height: 18, width: '60%', marginTop: SP.md }]} />
-      <View style={[S.skel, { height: 14, width: '40%', marginTop: SP.sm }]} />
-    </Animated.View>
-  );
-}
-
-const VehicleCard = memo(function VehicleCard({ v, onPress }) {
-  const uri = api.getFileUrl(v.photoKeys && v.photoKeys[0]);
-  return (
-    <PressScale onPress={() => onPress(v._id)} label={`${v.make} ${v.model} ${v.year}, status ${v.status}`} style={[S.card, { marginBottom: SP.lg, padding: SP.md }]}>
-      {uri ? (
-        <Image source={{ uri }} style={S.cardImg} />
-      ) : (
-        <View style={[S.cardImg, S.center]}>
-          <Icon name="car" size={44} color={C.primary} />
-        </View>
-      )}
-      <View style={{ padding: SP.sm }}>
-        <View style={[S.row, { justifyContent: 'space-between', marginTop: SP.xs }]}>
-          <View style={{ flex: 1, paddingRight: SP.sm }}>
-            <Text style={S.cardTitle} numberOfLines={1}>
-              {v.make} {v.model}
-            </Text>
-            <Text style={S.muted}>
-              {v.year} · {v.colour} · {v.type}
-            </Text>
-          </View>
-          <StatusBadge status={v.status} />
-        </View>
-        <View style={[S.row, { marginTop: SP.md, flexWrap: 'wrap' }]}>
-          <View style={S.plate}>
-            <Text style={S.plateText}>{v.plateNo}</Text>
-          </View>
-          <Chip small label={`${v.seats} seats`} icon="seat-passenger" />
-          <Chip small label={v.hasAC ? 'AC' : 'No AC'} icon="snowflake" />
-          <Chip small label={`Luggage: ${v.luggage}`} icon="bag-suitcase-outline" />
-        </View>
-      </View>
-    </PressScale>
-  );
-});
-
-function VehiclesScreen({ vehicles, loading, refreshing, loadError, onRefresh, onOpen, onAdd, onBack }) {
-  const [filter, setFilter] = useState('All');
-  const bottomSpace = useBottomSpace();
-  const data = useMemo(() => (filter === 'All' ? vehicles : vehicles.filter((v) => v.status === filter)), [vehicles, filter]);
-  const renderItem = useCallback(({ item }) => <VehicleCard v={item} onPress={onOpen} />, [onOpen]);
-
-  return (
-    <GradientScreen>
-      <SafeAreaView edges={['top', 'left', 'right']} style={S.flex}>
-        <View style={S.shell}>
-          <View style={[S.topBar, { marginBottom: SP.sm }]}>
-            <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Go back" style={S.backBtn}>
-              <Icon name="arrow-left" size={24} color={C.text} />
-            </Pressable>
-            <Text style={S.h2} accessibilityRole="header">
-              My Vehicles
-            </Text>
-            <View style={{ width: 44 }} />
-          </View>
-          <View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: SP.md }}>
-              {FILTERS.map((f) => (
-                <Chip key={f} label={f} selected={filter === f} onPress={() => setFilter(f)} />
-              ))}
-            </ScrollView>
-          </View>
-          {loading ? (
-            <View style={{ paddingTop: SP.sm }}>
-              <Skeleton />
-              <Skeleton />
-            </View>
-          ) : (
-            <FlatList
-              data={data}
-              keyExtractor={(i) => i._id}
-              renderItem={renderItem}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 90 + bottomSpace, flexGrow: 1 }}
-              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
-              ListEmptyComponent={
-                <View style={[S.center, { flex: 1, paddingVertical: SP.xxxl }]}>
-                  <View style={[S.successCircle, { backgroundColor: C.tint, width: 96, height: 96, borderRadius: 48 }]}>
-                    <Icon name={loadError ? 'wifi-off' : 'car-off'} size={44} color={C.primary} />
-                  </View>
-                  <Text style={[S.h2, { marginTop: SP.xl }]}>
-                    {loadError ? 'Could not load vehicles' : filter === 'All' ? 'No vehicles yet' : `No ${filter.toLowerCase()} vehicles`}
-                  </Text>
-                  <Text style={[S.sub, { textAlign: 'center', marginTop: SP.sm }]}>
-                    {loadError
-                      ? loadError
-                      : filter === 'All'
-                      ? 'Add your first vehicle to start taking rides.'
-                      : 'Nothing matches this filter.'}
-                  </Text>
-                  {loadError ? (
-                    <PrimaryButton title="Try again" onPress={onRefresh} style={{ marginTop: SP.xl, paddingHorizontal: SP.xxl }} />
-                  ) : filter === 'All' ? (
-                    <PrimaryButton title="Add your first vehicle" onPress={onAdd} style={{ marginTop: SP.xl, paddingHorizontal: SP.xxl }} />
-                  ) : null}
-                </View>
-              }
-            />
-          )}
-        </View>
-        {/* Lifted above the system navigation bar */}
-        <Pressable onPress={onAdd} accessibilityRole="button" accessibilityLabel="Add vehicle" style={[S.fab, { bottom: bottomSpace }]}>
-          <Icon name="plus" size={30} color={C.white} />
-        </Pressable>
-      </SafeAreaView>
-    </GradientScreen>
-  );
-}
-
-function VehicleDetailsScreen({ vehicle, onBack }) {
-  const width = Math.min(Dimensions.get('window').width, MAX_W);
-  const imgW = width - 40;
-  const [idx, setIdx] = useState(0);
-  const bottomSpace = useBottomSpace();
-  if (!vehicle) return null;
-  const photoKeys = vehicle.photoKeys || [];
-  const vdocs = vehicle.documents || {};
-  const docs = [
-    { key: 'registration', title: 'Registration document', icon: 'file-document-outline' },
-    { key: 'revenueLicence', title: 'Revenue licence', icon: 'card-account-details-outline' },
-    { key: 'insurance', title: 'Insurance', icon: 'shield-check-outline' },
-  ];
-  const info = [
-    ['Type', vehicle.type],
-    ['Colour', vehicle.colour],
-    ['Year', String(vehicle.year)],
-    ['Seats', String(vehicle.seats)],
-    ['Air conditioning', vehicle.hasAC ? 'Yes' : 'No'],
-    ['Luggage', vehicle.luggage],
-  ];
-  return (
-    <GradientScreen>
-      <SafeAreaView edges={['top', 'left', 'right']} style={S.flex}>
-        <View style={[S.shell, { paddingBottom: 0 }]}>
-          <View style={S.topBar}>
-            <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Go back" style={S.backBtn}>
-              <Icon name="arrow-left" size={24} color={C.text} />
-            </Pressable>
-            <Text style={S.h2} numberOfLines={1}>
-              {vehicle.make} {vehicle.model}
-            </Text>
-            <View style={{ width: 44 }} />
-          </View>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: SP.md, paddingBottom: bottomSpace }}>
-            {photoKeys.length > 0 ? (
-              <View style={{ borderRadius: R.lg, overflow: 'hidden' }}>
-                <ScrollView
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  onMomentumScrollEnd={(e) => setIdx(Math.round(e.nativeEvent.contentOffset.x / imgW))}
-                >
-                  {photoKeys.map((k) => (
-                    <Image key={k} source={{ uri: api.getFileUrl(k) }} style={{ width: imgW, height: 220, backgroundColor: C.tint }} />
-                  ))}
-                </ScrollView>
-                <View style={S.dots}>
-                  {photoKeys.map((k, i) => (
-                    <View key={k} style={[S.dot, i === idx && { backgroundColor: C.white, width: 18 }]} />
-                  ))}
-                </View>
-              </View>
-            ) : null}
-
-            <View style={[S.row, { justifyContent: 'space-between', marginTop: SP.xl }]}>
-              <View style={S.plate}>
-                <Text style={S.plateText}>{vehicle.plateNo}</Text>
-              </View>
-              <StatusBadge status={vehicle.status} />
-            </View>
-
-            {vehicle.status === 'Rejected' && vehicle.rejectionReason ? (
-              <View style={[S.alert, { marginTop: SP.lg }]} accessibilityRole="alert">
-                <Icon name="alert-circle-outline" size={22} color={C.danger} />
-                <View style={{ flex: 1, marginLeft: SP.sm }}>
-                  <Text style={[S.rowTitle, { color: C.danger }]}>Rejected</Text>
-                  <Text style={S.alertText}>{vehicle.rejectionReason}</Text>
-                </View>
-              </View>
-            ) : null}
-
-            <Card style={{ marginTop: SP.lg }}>
-              <View style={S.infoGrid}>
-                {info.map(([k, v]) => (
-                  <View key={k} style={S.infoCell}>
-                    <Text style={S.muted}>{k}</Text>
-                    <Text style={S.kvValue}>{v}</Text>
-                  </View>
-                ))}
-              </View>
-            </Card>
-
-            <Text style={[S.h2, { marginTop: SP.xl, marginBottom: SP.md }]}>Documents</Text>
-            {docs.map((d) => {
-              const doc = vdocs[d.key];
-              const ex = expiryInfo(doc && doc.expiry);
-              const url = doc ? api.getFileUrl(doc.fileKey) : null;
-              return (
-                <Pressable
-                  key={d.key}
-                  disabled={!url}
-                  onPress={() => url && Linking.openURL(url)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${d.title}. ${doc && doc.expiry ? ex.text : ''}`}
-                  style={[S.card, S.row, { justifyContent: 'space-between', marginBottom: SP.md, padding: SP.lg }]}
-                >
-                  <View style={S.row}>
-                    <View style={S.iconTile}>
-                      <Icon name={d.icon} size={22} color={C.primary} />
-                    </View>
-                    <View style={{ marginLeft: SP.md }}>
-                      <Text style={S.rowTitle}>{d.title}</Text>
-                      {doc && doc.expiry ? (
-                        <Text style={[S.expiry, { color: ex.color }]}>{ex.text}</Text>
-                      ) : (
-                        <Text style={S.muted}>{doc ? 'On file' : 'Not uploaded'}</Text>
-                      )}
-                    </View>
-                  </View>
-                  <Icon name="chevron-right" size={22} color={C.textMuted} />
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      </SafeAreaView>
-    </GradientScreen>
-  );
-}
-
-/* ===========================================================================
- * 11. MODULE ROOT (default export)  -  add | list | details
- * ========================================================================= */
-export default function AddVehicleModule({ ownerId, authToken }) {
-  // Pass `ownerId` and `authToken` as props, or read them from your auth context:
-  //   const { user, token } = useAuth();
+export default function AddVehicleModule() {
   const router = useRouter();
-  AUTH_TOKEN = authToken || AUTH_TOKEN;
 
-  const [screen, setScreen] = useState('add'); // 'add' | 'list' | 'details'
-  const [vehicles, setVehicles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState('');
-  const [selectedId, setSelectedId] = useState(null);
-
-  const load = useCallback(
-    async (isRefresh) => {
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
-      setLoadError('');
-      try {
-        setVehicles(await api.listVehicles(ownerId));
-      } catch (e) {
-        setLoadError(e.message || 'Please check your connection and try again.');
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [ownerId]
-  );
-
-  useEffect(() => {
-    load(false);
-  }, [load]);
-
-  const onCreated = useCallback((v) => setVehicles((prev) => [v, ...prev.filter((p) => p._id !== v._id)]), []);
-  const openDetails = useCallback((id) => {
-    setSelectedId(id);
-    setScreen('details');
-  }, []);
   const exitModule = useCallback(() => {
-    if (router.canGoBack && router.canGoBack()) router.back();
-    else setScreen('list');
+    if (router.canGoBack && router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/');
+    }
   }, [router]);
 
-  const selected = vehicles.find((v) => v._id === selectedId) || null;
-
-  if (screen === 'list')
-    return (
-      <VehiclesScreen
-        vehicles={vehicles}
-        loading={loading}
-        refreshing={refreshing}
-        loadError={loadError}
-        onRefresh={() => load(true)}
-        onOpen={openDetails}
-        onAdd={() => setScreen('add')}
-        onBack={() => setScreen('add')}
-      />
-    );
-  if (screen === 'details') return <VehicleDetailsScreen vehicle={selected} onBack={() => setScreen('list')} />;
-
-  return <Wizard key="wizard" ownerId={ownerId} onCreated={onCreated} onViewVehicles={() => setScreen('list')} onExit={exitModule} />;
+  return (
+    <Wizard
+      key="wizard"
+      onCreated={() => {}}
+      onViewVehicles={() => router.push('/Vehicle')}
+      onExit={exitModule}
+    />
+  );
 }
 
 /* ===========================================================================
- * 12. STYLES
+ * 11. STYLES
  * ========================================================================= */
 const S = StyleSheet.create({
   flex: { flex: 1 },
