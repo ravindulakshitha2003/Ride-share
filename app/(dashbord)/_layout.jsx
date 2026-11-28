@@ -2,13 +2,13 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../../theme/colors';
-import { useNotifications } from '../../context/notificationContext';
+//import { useNotifications } from '../../context/notificationContext';
 import { AuthProvider } from '../../context/authContext';
 import AuthGate from '../../components/AuthGate';
 
 
 export default function DashboardLayout() {
-  const { unreadCount } = useNotifications();
+  // const { unreadCount } = useNotifications();
 
   return (
     <AuthProvider>
@@ -100,18 +100,18 @@ export default function DashboardLayout() {
                   color={color}
                 />
               ),
-              tabBarBadge:
-                unreadCount > 0
-                  ? unreadCount > 99
-                    ? '99+'
-                    : unreadCount
-                  : undefined,
-              tabBarBadgeStyle: {
-                backgroundColor: colors.error,
-                color: colors.white,
-                fontSize: 10,
-                fontWeight: '700',
-              },
+              // tabBarBadge:
+              //   unreadCount > 0
+              //     ? unreadCount > 99
+              //       ? '99+'
+              //       : unreadCount
+              //     : undefined,
+              // tabBarBadgeStyle: {
+              //   backgroundColor: colors.error,
+              //   color: colors.white,
+              //   fontSize: 10,
+              //   fontWeight: '700',
+              // },
             }}
           />
 

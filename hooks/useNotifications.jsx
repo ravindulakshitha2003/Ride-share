@@ -1,93 +1,197 @@
-import { useState, useEffect, useCallback } from 'react';
+
+import { useCallback, useEffect, useState } from 'react';
+
 import {
-  getNotifications,
-  getUnreadNotificationCount,
+  fetchNotifications,
+  fetchUnreadCount,
   markNotificationAsRead,
   markAllNotificationsAsRead,
-} from '../api/notificationApi';
+} from '../services/notificationService';
 
-export function useNotifications(pollIntervalMs = 15000) {
+export function useNotifications() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const [error, setError] = useState(null);
 
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 0,
+  });
+
+  // Fetch notifications and unread count
   const loadNotifications = useCallback(async () => {
     try {
       setError(null);
-      const [listRes, countRes] = await Promise.all([
-        getNotifications(1, 30),
-        getUnreadNotificationCount(),
-      ]);
 
-      if (listRes?.success) {
-        setNotifications(listRes.notifications || []);
-      }
-      if (countRes?.success) {
-        setUnreadCount(countRes.unreadCount || 0);
-      }
+      const [notificationResult, countResult] =
+        await Promise.all([
+          fetchNotifications(1, 20),
+          fetchUnreadCount(),
+        ]);
+
+      setNotifications(notificationResult.notifications || []);
+      setPagination(
+        notificationResult.pagination || {
+          page: 1,
+          limit: 20,
+          total: 0,
+          totalPages: 0,
+        }
+      );
+
+      setUnreadCount(countResult);
     } catch (err) {
-      console.warn('Failed to fetch notifications:', err?.message || err);
-      setError(err?.response?.data?.message || 'Could not load notifications');
+      console.error(
+        'Notification loading failed:',
+        err.response?.data || err.message
+      );
+
+      setError(
+        err.response?.data?.message ||
+        'Unable to load notifications. Please try again.'
+      );
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, []);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
+  // Initial loading
+  useEffect(() => {
     loadNotifications();
   }, [loadNotifications]);
 
-  const markAsRead = async (id) => {
-    try {
-      // Optimistic UI update
-      setNotifications((prev) =>
-        prev.map((n) => (n._id === id ? { ...n, readAt: new Date().toISOString() } : n))
-      );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+  // Pull-to-refresh
+  const refreshNotifications = useCallback(async () => {
+    setRefreshing(true);
 
-      await markNotificationAsRead(id);
-    } catch (err) {
-      console.error('Error marking notification as read:', err);
-      loadNotifications(); // Rollback if error
+    try {
+      await loadNotifications();
+    } finally {
+      setRefreshing(false);
     }
-  };
+  }, [loadNotifications]);
 
-  const markAllAsRead = async () => {
+  // Load next page
+  const loadMoreNotifications = useCallback(async () => {
+    if (
+      loadingMore ||
+      loading ||
+      pagination.page >= pagination.totalPages
+    ) {
+      return;
+    }
+
+    const nextPage = pagination.page + 1;
+
+    setLoadingMore(true);
+
     try {
-      // Optimistic UI update
-      setNotifications((prev) =>
-        prev.map((n) => ({ ...n, readAt: new Date().toISOString() }))
-      );
-      setUnreadCount(0);
+      const result = await fetchNotifications(nextPage, 20);
 
+      setNotifications((previous) => {
+        const existingIds = new Set(
+          previous.map((item) => item._id)
+        );
+
+        const newItems = (result.notifications || []).filter(
+          (item) => !existingIds.has(item._id)
+        );
+
+        return [...previous, ...newItems];
+      });
+
+      setPagination(result.pagination);
+    } catch (err) {
+      console.error('Loading more notifications failed:', err.message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, loading, pagination]);
+
+  // Mark one notification as read
+  const markRead = useCallback(async (notificationId) => {
+    const notification = notifications.find(
+      (item) => item._id === notificationId
+    );
+
+    if (!notification || notification.readAt) {
+      return;
+    }
+
+    try {
+      await markNotificationAsRead(notificationId);
+
+      const readAt = new Date().toISOString();
+
+      setNotifications((previous) =>
+        previous.map((item) =>
+          item._id === notificationId
+            ? { ...item, readAt }
+            : item
+        )
+      );
+
+      setUnreadCount((previous) => Math.max(0, previous - 1));
+    } catch (err) {
+      console.error(
+        'Mark notification as read failed:',
+        err.response?.data || err.message
+      );
+
+      throw err;
+    }
+  }, [notifications]);
+
+  // Mark all notifications as read
+  const markAllRead = useCallback(async () => {
+    if (unreadCount === 0) return;
+
+    try {
       await markAllNotificationsAsRead();
+
+      const readAt = new Date().toISOString();
+
+      setNotifications((previous) =>
+        previous.map((item) => ({
+          ...item,
+          readAt: item.readAt || readAt,
+        }))
+      );
+
+      setUnreadCount(0);
     } catch (err) {
-      console.error('Error marking all as read:', err);
-      loadNotifications();
-    }
-  };
+      console.error(
+        'Mark all notifications as read failed:',
+        err.response?.data || err.message
+      );
 
-  useEffect(() => {
-    loadNotifications();
-
-    if (pollIntervalMs > 0) {
-      const timer = setInterval(loadNotifications, pollIntervalMs);
-      return () => clearInterval(timer);
+      throw err;
     }
-  }, [loadNotifications, pollIntervalMs]);
+  }, [unreadCount]);
 
   return {
     notifications,
     unreadCount,
+
     loading,
     refreshing,
+    loadingMore,
     error,
-    refresh: onRefresh,
-    markAsRead,
-    markAllAsRead,
+
+    pagination,
+
+    loadNotifications,
+    refreshNotifications,
+    loadMoreNotifications,
+
+    markRead,
+    markAllRead,
   };
 }

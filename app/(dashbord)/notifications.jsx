@@ -18,7 +18,6 @@ import { useNotifications } from '../../hooks/useNotifications'; // Adjust path 
 
 /* =======================================================
    DESIGN TOKENS (From ResultsScreen)
-======================================================= */
 const C = {
   primary: '#5B4BDB',
   secondary: '#312E81',
@@ -58,7 +57,6 @@ const SHADOW = Platform.select({
 
 /* =======================================================
    ANIMATION PRESSABLE
-======================================================= */
 function PressScale({ onPress, disabled, style, children }) {
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -133,7 +131,6 @@ function getEventMeta(type) {
 
 /* =======================================================
    NOTIFICATION CARD WITH "SEE MORE"
-======================================================= */
 function NotificationCard({ item, onMarkAsRead, onNavigateDetails }) {
   const [expanded, setExpanded] = useState(false);
   const isUnread = !item.readAt;
@@ -240,7 +237,6 @@ const MemoNotificationCard = memo(NotificationCard);
 
 /* =======================================================
    MAIN SCREEN
-======================================================= */
 export default function NotificationScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
