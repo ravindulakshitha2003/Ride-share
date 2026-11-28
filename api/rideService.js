@@ -51,6 +51,7 @@ export async function searchAvailableRides({
 export async function bookRideSeat({
   routeId,
   seats,
+  driver,
   // Passenger's chosen search points
   passengerOrigin,       // { name, latitude, longitude }
   passengerDestination,  // { name, latitude, longitude }
@@ -66,6 +67,7 @@ export async function bookRideSeat({
     const payload = {
       rideId: String(routeId),
       requestedSeats: Number(seats),
+      driverId:driver,
       note: note || null,
       passengerJourney: {
         origin: {

@@ -75,7 +75,7 @@ export default function BookingScreen() {
   const [selectedSeats, setSelectedSeats] = useState(1);
   const [isBooking, setIsBooking] = useState(false);
 
-  const driver = ride.driver_id || {};
+  const driver = ride.driver ;
   const pricePerSeat = Number(ride.price_per_seat ?? ride.pricePerSeat ?? 0);
   const totalPrice = pricePerSeat * selectedSeats;
   const currency = ride.currency || 'Rs';
@@ -99,7 +99,7 @@ export default function BookingScreen() {
   const handleConfirmBooking = useCallback(async () => {
     if (isBooking) return; // Prevent double submission
     const routeId = ride.route_id || ride.id;
-
+    console.log()
     if (!routeId) {
       showToast({
         type: 'error',
@@ -146,7 +146,7 @@ export default function BookingScreen() {
                 extractCoords(ride.destination) ||
                 dropoffCoords;
 
-              const driver = ride.driver_id;
+         console.log("before "+driver);
 
               await bookRideSeat({
                 routeId,

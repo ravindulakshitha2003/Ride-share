@@ -176,6 +176,8 @@ export default function RideDetailsScreen() {
     }
   }, [params.ride]);
 
+
+
   // 2. Parse IDs
   const driverID = useMemo(() => (
     ride?.driverID || ride?.driver_id || ride?.driverId ||
@@ -301,6 +303,7 @@ export default function RideDetailsScreen() {
   }
 
   const currency = ride.currency || 'Rs';
+  const driverId =  ride.driverID;
   const pricePerSeat = Number(ride.price_per_seat ?? ride.pricePerSeat ?? 0);
   const availableSeats = ride.available_seats ?? ride.availableSeats ?? ride.seatsFree ?? '—';
   const originName = ride.origin_name || ride.from || 'Origin';
@@ -360,10 +363,13 @@ export default function RideDetailsScreen() {
 
     setIsNavigatingToBooking(true);
     try {
+      console.log('Ride Keys:', driverId);
+      ride.driver= driverId;
       router.push({
         pathname: '/booking',
         params: { ride: JSON.stringify(ride) },
       });
+     
     } catch (err) {
       showToast({
         type: 'error',

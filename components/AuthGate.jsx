@@ -37,7 +37,7 @@ export default function AuthGate({
   redirectTo = '/login', // file app/(auth)/login.jsx -> URL "/login"
   allowedRoles, // optional array of roles that may see the children
 }) {
-  console.log(allowedRoles);
+
   const { user, loading } = useAuth();
 
   // 1. Still checking the saved token -> show a spinner.
@@ -60,7 +60,7 @@ export default function AuthGate({
 
   // 3. (optional) Logged in but wrong role -> go to the home route.
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Redirect href="/" />;
+    return <Redirect href="/register" />;
   }
 
   // 4. Logged in -> render the protected screen.
