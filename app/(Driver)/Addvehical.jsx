@@ -322,17 +322,18 @@ function OptionCard({ label, icon, selected, onPress }) {
       label={`${label} vehicle`}
       role="radio"
       state={{ selected: !!selected }}
-      style={[S.optionCard, selected && S.optionOn]}
+      style={[S.vehicleTypeCard, selected && S.vehicleTypeCardOn]}
     >
-      {selected ? (
-        <View style={S.checkPos}>
-          <PopCheck />
-        </View>
-      ) : null}
-      <View style={[S.optionIcon, selected && { backgroundColor: C.primary }]}>
-        <Icon name={icon} size={34} color={selected ? C.white : C.primary} />
+      <View style={[S.vehicleTypeIconWrap, selected && S.vehicleTypeIconWrapOn]}>
+        <Icon name={icon} size={29} color={selected ? C.primary : C.textMuted} />
       </View>
-      <Text style={[S.optionLabel, selected && { color: C.primary }]}>{label}</Text>
+      <View style={S.vehicleTypeCopy}>
+        <Text style={[S.vehicleTypeTitle, selected && { color: C.primary }]}>{label}</Text>
+        <Text style={S.vehicleTypeHint}>Select {label.toLowerCase()}</Text>
+      </View>
+      <View style={[S.vehicleTypeRadio, selected && S.vehicleTypeRadioOn]}>
+        {selected ? <Icon name="check" size={14} color={C.white} /> : null}
+      </View>
     </PressScale>
   );
 }
@@ -568,7 +569,7 @@ function StepHeader({ title, subtitle }) {
     return () => clearTimeout(t);
   }, []);
   return (
-    <View style={{ marginBottom: SP.xxl }}>
+    <View style={S.stepHeader}>
       <Text ref={ref} accessibilityRole="header" style={S.h1}>
         {title}
       </Text>
@@ -592,23 +593,45 @@ function Needed({ errors }) {
  * 7. WIZARD STEPS
  * ========================================================================= */
 const TYPES = [
-  { label: 'Car', icon: 'car' },
+  { label: 'Car', icon: 'car-side' },
   { label: 'Van', icon: 'van-utility' },
   { label: 'SUV', icon: 'car-estate' },
-  { label: 'Other', icon: 'dots-horizontal-circle-outline' },
+  { label: 'Other', icon: 'car-multiple' },
 ];
 
 function Step1Type({ form, set, errors }) {
   return (
     <>
-      <StepHeader title="What are you adding?" subtitle="Pick the type that fits your vehicle best." />
-      <View style={S.grid}>
+      <StepHeader title="What are you adding?" subtitle="Choose your vehicle category." />
+      <View style={S.vehicleTypeList}>
         {TYPES.map((t) => (
-          <View key={t.label} style={S.gridCell}>
-            <OptionCard label={t.label} icon={t.icon} selected={form.type === t.label} onPress={() => set({ type: t.label })} />
-          </View>
+          <OptionCard
+            key={t.label}
+            label={t.label}
+            icon={t.icon}
+            selected={form.type === t.label}
+            onPress={() => set({ type: t.label })}
+          />
         ))}
       </View>
+
+      <View style={S.lorrySection}>
+        <View style={S.lorrySectionHeading}>
+          <Text style={S.lorrySectionTitle}>Add Lorry</Text>
+          <Text style={S.lorryComingSoon}>Coming soon</Text>
+        </View>
+        <View style={S.lorryDisplayCard} accessibilityLabel="Add Lorry, coming soon">
+          <View style={S.lorryIconWrap}>
+            <Icon name="truck" size={30} color={C.textMuted} />
+          </View>
+          <View style={S.vehicleTypeCopy}>
+            <Text style={S.vehicleTypeTitle}>Lorry</Text>
+            <Text style={S.vehicleTypeHint}>Heavy goods vehicle</Text>
+          </View>
+          <Icon name="lock-outline" size={17} color={C.textMuted} />
+        </View>
+      </View>
+
       <Needed errors={errors} />
     </>
   );
@@ -1107,15 +1130,16 @@ const S = StyleSheet.create({
   glowA: { position: 'absolute', top: -80, right: -70, width: 240, height: 240, borderRadius: 120, backgroundColor: C.accent, opacity: 0.28 },
   glowB: { position: 'absolute', bottom: 120, left: -100, width: 220, height: 220, borderRadius: 110, backgroundColor: C.primary, opacity: 0.1 },
 
-  h1: { fontSize: 28, lineHeight: 34, fontWeight: '800', color: C.text, letterSpacing: -0.4 },
-  h2: { fontSize: 20, fontWeight: '800', color: C.text },
-  sub: { fontSize: 15, lineHeight: 22, color: C.textMuted, marginTop: SP.sm },
-  label: { fontSize: 14, fontWeight: '700', color: C.text, marginBottom: SP.sm },
+  stepHeader: { marginBottom: SP.xl },
+  h1: { fontSize: 27, lineHeight: 34, fontWeight: '800', color: C.text, letterSpacing: -0.5 },
+  h2: { fontSize: 19, fontWeight: '800', color: C.text, letterSpacing: -0.2 },
+  sub: { fontSize: 14, lineHeight: 21, color: C.textMuted, marginTop: SP.xs },
+  label: { fontSize: 14, fontWeight: '800', color: C.text, marginBottom: SP.sm },
   muted: { fontSize: 13, color: C.textMuted },
   error: { fontSize: 13, color: C.danger, marginTop: SP.xs, fontWeight: '600' },
-  rowTitle: { fontSize: 16, fontWeight: '700', color: C.text },
+  rowTitle: { fontSize: 15, fontWeight: '800', color: C.text },
 
-  card: { backgroundColor: C.surface, borderRadius: R.lg, padding: SP.xl, ...SHADOW },
+  card: { backgroundColor: C.surface, borderRadius: R.lg, padding: SP.lg, borderWidth: 1, borderColor: C.borderSubtle, ...SHADOW },
 
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 56 },
   backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', ...SHADOW },
@@ -1133,17 +1157,27 @@ const S = StyleSheet.create({
   chipText: { fontSize: 14, color: C.text, fontWeight: '500' },
   chipScroll: { flexGrow: 0, marginTop: -SP.sm, marginBottom: SP.lg },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -SP.sm },
-  gridCell: { width: '50%', padding: SP.sm },
-  optionCard: { backgroundColor: C.surface, borderRadius: R.xl, paddingVertical: SP.xxl, alignItems: 'center', borderWidth: 2, borderColor: 'transparent', ...SHADOW },
-  optionOn: { backgroundColor: C.tint, borderColor: C.primary },
-  optionIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: C.tint, alignItems: 'center', justifyContent: 'center' },
-  optionLabel: { marginTop: SP.md, fontSize: 17, fontWeight: '700', color: C.text },
+  vehicleTypeList: { gap: SP.sm },
+  vehicleTypeCard: { minHeight: 72, flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: R.lg, paddingHorizontal: SP.md, paddingVertical: SP.sm, borderWidth: 1.5, borderColor: C.borderSubtle, ...SHADOW },
+  vehicleTypeCardOn: { backgroundColor: C.tint, borderColor: C.primary },
+  vehicleTypeIconWrap: { width: 52, height: 52, borderRadius: R.md, alignItems: 'center', justifyContent: 'center', backgroundColor: C.background },
+  vehicleTypeIconWrapOn: { backgroundColor: C.surface },
+  vehicleTypeCopy: { flex: 1, minWidth: 0, paddingHorizontal: SP.md },
+  vehicleTypeTitle: { fontSize: 15, fontWeight: '800', color: C.text, letterSpacing: -0.15 },
+  vehicleTypeHint: { fontSize: 11, fontWeight: '500', color: C.textMuted, marginTop: 3 },
+  vehicleTypeRadio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  vehicleTypeRadioOn: { backgroundColor: C.primary, borderColor: C.primary },
+  lorrySection: { marginTop: SP.xl },
+  lorrySectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP.sm },
+  lorrySectionTitle: { color: C.text, fontSize: 14, fontWeight: '800' },
+  lorryComingSoon: { color: C.textMuted, fontSize: 10, fontWeight: '700' },
+  lorryDisplayCard: { minHeight: 68, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.md, paddingVertical: SP.sm, borderRadius: R.lg, borderWidth: 1, borderStyle: 'dashed', borderColor: C.borderSubtle, backgroundColor: C.surface, opacity: 0.82 },
+  lorryIconWrap: { width: 48, height: 48, borderRadius: R.md, alignItems: 'center', justifyContent: 'center', backgroundColor: C.background },
   checkPos: { position: 'absolute', top: 12, right: 12 },
   checkBadge: { backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
 
-  input: { minHeight: 52, borderRadius: R.md, borderWidth: 1, borderColor: C.borderSubtle, backgroundColor: C.surface, paddingHorizontal: SP.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  inputText: { flex: 1, fontSize: 16, color: C.text, paddingVertical: SP.md },
+  input: { minHeight: 52, borderRadius: R.md, borderWidth: 1.2, borderColor: C.borderSubtle, backgroundColor: C.background, paddingHorizontal: SP.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  inputText: { flex: 1, fontSize: 15, fontWeight: '600', color: C.text, paddingVertical: SP.md },
 
   swatchWrap: { flexDirection: 'row', flexWrap: 'wrap' },
   swatchItem: { width: '20%', alignItems: 'center', marginBottom: SP.md, minHeight: 64 },
