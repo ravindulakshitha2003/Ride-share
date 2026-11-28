@@ -10,38 +10,42 @@ import {
   RefreshControl,
 } from 'react-native';
 
-
 import NotificationHeader from '../../components/notifications/NotificationHeader';
 import NotificationTabs from '../../components/notifications/NotificationTabs';
 import NotificationCard from '../../components/notifications/NotificationCard';
 import NotificationEmptyState from '../../components/notifications/NotificationEmptyState';
+import RideDetailsModal from '../../components/notifications/RideDetailsModal';
 
 import { useNotifications } from '../../hooks/useNotifications';
-
 
 export default function NotificationsScreen() {
   const [activeTab, setActiveTab] = useState('All');
 
- const {
-  notifications,
-  unreadCount,
-  loading,
-  refreshing,
-  loadingMore,
-  error,
-  pagination,
-  refreshNotifications: refresh,
-  loadMoreNotifications: loadMore,
-  markRead,
-  markAllRead,
-} = useNotifications();
+  // Ride details modal state
+  const [selectedRideId, setSelectedRideId] = useState(null);
+  const [rideModalVisible, setRideModalVisible] = useState(false);
+
+  const {
+    notifications,
+    unreadCount,
+    loading,
+    refreshing,
+    loadingMore,
+    error,
+    pagination,
+    refreshNotifications: refresh,
+    loadMoreNotifications: loadMore,
+    markRead,
+    markAllRead,
+  } = useNotifications();
 
   // Filter notifications according to the selected tab.
   const filteredNotifications = useMemo(() => {
     if (activeTab === 'Rides') {
       return notifications.filter(
-        (item) => item.type?.startsWith('ride.')
-          || item.type?.startsWith('booking.')
+        (item) =>
+          item.type?.startsWith('ride.') ||
+          item.type?.startsWith('booking.')
       );
     }
 
@@ -54,13 +58,13 @@ export default function NotificationsScreen() {
     return notifications;
   }, [notifications, activeTab]);
 
-  // Calculate category counts.
+  // Calculate category unread counts.
   const unreadCounts = useMemo(() => {
     const rides = notifications.filter(
       (item) =>
         !item.readAt &&
-        (item.type?.startsWith('ride.')
-          || item.type?.startsWith('booking.'))
+        (item.type?.startsWith('ride.') ||
+          item.type?.startsWith('booking.'))
     ).length;
 
     const payments = notifications.filter(
@@ -76,6 +80,7 @@ export default function NotificationsScreen() {
     };
   }, [notifications, unreadCount]);
 
+  // Mark individual notification as read.
   const handleNotificationPress = useCallback(
     async (item) => {
       if (!item.readAt) {
@@ -85,10 +90,30 @@ export default function NotificationsScreen() {
     [markRead]
   );
 
+  // Open ride details modal.
+  const handleViewRide = useCallback((item) => {
+    const rideId = item?.data?.rideId;
+
+    if (!rideId) {
+      console.log('Ride ID is missing from notification:', item);
+      return;
+    }
+
+    setSelectedRideId(String(rideId));
+    setRideModalVisible(true);
+  }, []);
+
+  // Close ride details modal.
+  const closeRideModal = useCallback(() => {
+    setRideModalVisible(false);
+  }, []);
+
+  // Mark all notifications as read.
   const handleMarkAllRead = useCallback(async () => {
     await markAllRead();
   }, [markAllRead]);
 
+  // Load more notifications when reaching the bottom.
   const handleLoadMore = useCallback(() => {
     if (
       !loading &&
@@ -100,13 +125,19 @@ export default function NotificationsScreen() {
     }
   }, [loading, loadingMore, pagination, loadMore]);
 
-  const renderNotification = ({ item }) => (
-    <NotificationCard
-      item={item}
-      onPress={handleNotificationPress}
-    />
+  // Render individual notification.
+  const renderNotification = useCallback(
+    ({ item }) => (
+      <NotificationCard
+        item={item}
+        onPress={handleNotificationPress}
+        onViewRide={handleViewRide}
+      />
+    ),
+    [handleNotificationPress, handleViewRide]
   );
 
+  // Render empty state.
   const renderEmptyState = () => {
     if (loading) return null;
 
@@ -193,6 +224,13 @@ export default function NotificationsScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      {/* Ride details modal */}
+      <RideDetailsModal
+        visible={rideModalVisible}
+        rideId={selectedRideId}
+        onClose={closeRideModal}
+      />
     </View>
   );
 }
@@ -202,23 +240,28 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F7F8FC',
   },
+
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   loadingText: {
     marginTop: 12,
     fontSize: 13,
     color: '#858B9B',
   },
+
   listContent: {
     paddingTop: 8,
     paddingBottom: 25,
   },
+
   emptyList: {
     flexGrow: 1,
   },
+
   footerLoader: {
     marginVertical: 20,
   },
